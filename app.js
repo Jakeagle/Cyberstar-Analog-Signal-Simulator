@@ -1707,28 +1707,31 @@ function buildStageArena() {
 
   charList.forEach((charName, index) => {
     const charDiv = document.createElement("div");
-    charDiv.className = "stage-character";
+    charDiv.className = "stage-character reveal-enter";
     charDiv.dataset.name = charName;
-    charDiv.style.animationDelay = `${index * 0.1}s`;
-    charDiv.classList.add("reveal-enter");
+    charDiv.style.animationDelay = `${index * 0.08}s`;
 
+    // ── Header ──
+    const header = document.createElement("div");
+    header.className = "stage-char-header";
     const label = document.createElement("h3");
     label.innerText = charName;
-    charDiv.appendChild(label);
+    header.appendChild(label);
+    charDiv.appendChild(header);
 
+    // ── Movement indicator list ──
     const bodyBox = document.createElement("div");
     bodyBox.className = "character-body-box";
 
     const moveData = CHARACTER_MOVEMENTS[charName];
     if (moveData && moveData.movements) {
       Object.keys(moveData.movements).forEach((moveKey) => {
-        const part = document.createElement("div");
-        const partClass = "part-" + moveKey.replace(/_/g, "-");
-        part.className = `stage-part ${partClass}`;
-        part.dataset.move = moveKey;
-        // Text inside part if needed
-        part.innerText = moveKey.split("_").pop().substring(0, 3);
-        bodyBox.appendChild(part);
+        const pill = document.createElement("div");
+        pill.className = "stage-part";
+        pill.dataset.move = moveKey;
+        // Human-readable label, e.g. "arm_left_raise" → "arm left raise"
+        pill.textContent = moveKey.replace(/_/g, " ");
+        bodyBox.appendChild(pill);
       });
     }
 
@@ -1750,7 +1753,7 @@ function updateStageArena() {
       Object.entries(moveData.movements).forEach(([moveKey, config]) => {
         const isBitOn = signalGenerator.getBit(config.track, config.bit);
         const part = charDiv.querySelector(
-          `.part-${moveKey.replace(/_/g, "-")}`,
+          `.stage-part[data-move="${moveKey}"]`,
         );
         if (part) {
           if (isBitOn) {

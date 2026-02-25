@@ -999,148 +999,100 @@ h1 {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 20px;
-  min-height: 500px;
+  align-items: flex-start;
+  gap: 16px;
   background: rgba(0, 0, 0, 0.4);
-  padding: 40px 20px;
+  padding: 30px 20px;
   border-radius: 8px;
   border: 1px dashed rgba(0, 212, 255, 0.2);
-  background-image:
-    radial-gradient(
-      circle at 2px 2px,
-      rgba(0, 212, 255, 0.05) 1px,
-      transparent 0
-    ),
-    linear-gradient(to bottom, transparent 95%, rgba(0, 212, 255, 0.05) 100%);
-  background-size: 40px 40px;
 }
 
-/* Character Representation */
+/* ── Character card ── */
 .stage-character {
-  width: 220px;
+  width: 200px;
   background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(0, 212, 255, 0.15);
+  border: 1px solid rgba(0, 212, 255, 0.2);
   border-radius: 10px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  padding: 15px;
-  position: relative;
-  transition: all 0.3s ease;
+  align-items: stretch;
+  overflow: hidden;
+  transition: border-color 0.2s ease;
 }
 
-.stage-character h3 {
-  font-size: 0.9em;
+.stage-character:hover {
+  border-color: rgba(0, 212, 255, 0.5);
+}
+
+.stage-char-header {
+  background: rgba(0, 212, 255, 0.07);
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(0, 212, 255, 0.15);
+}
+
+.stage-char-header h3 {
+  font-size: 0.78em;
   color: #00d4ff;
-  margin-bottom: 20px;
   text-transform: uppercase;
   letter-spacing: 1px;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* Machine schematic style */
+/* ── Movement indicator list ── */
 .character-body-box {
-  width: 100px;
-  height: 140px;
-  border: 2px solid #333;
-  position: relative;
-  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 8px;
 }
 
 .stage-part {
-  position: absolute;
-  background: #1a1a1a;
-  border: 1px solid #333;
-  font-size: 0.6em;
   display: flex;
   align-items: center;
-  justify-content: center;
-  color: #445;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 0.68em;
+  color: #556;
   text-transform: uppercase;
-  transition: all 0.05s ease;
+  letter-spacing: 0.5px;
+  transition:
+    background 0.05s ease,
+    color 0.05s ease,
+    border-color 0.05s ease;
   pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stage-part::before {
+  content: "";
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #222;
+  border: 1px solid #333;
+  transition:
+    background 0.05s ease,
+    box-shadow 0.05s ease;
 }
 
 .stage-part.active {
-  background: #00ffcc;
-  border-color: #fff;
-  color: #000;
-  box-shadow: 0 0 15px #00ffcc;
-  z-index: 10;
+  background: rgba(0, 255, 180, 0.1);
+  border-color: rgba(0, 255, 180, 0.4);
+  color: #00ffcc;
 }
 
-/* Part Layout Positions */
-.part-head {
-  width: 50px;
-  height: 40px;
-  top: -45px;
-  left: 23px;
-  border-radius: 50% 50% 10% 10%;
-}
-.part-mouth {
-  width: 24px;
-  height: 10px;
-  top: -15px;
-  left: 36px;
-  border-radius: 0 0 5px 5px;
-}
-.part-eye-l {
-  width: 8px;
-  height: 8px;
-  top: -35px;
-  left: 32px;
-  border-radius: 50%;
-}
-.part-eye-r {
-  width: 8px;
-  height: 8px;
-  top: -35px;
-  left: 58px;
-  border-radius: 50%;
-}
-.part-ear-l {
-  width: 12px;
-  height: 20px;
-  top: -48px;
-  left: 18px;
-  border-radius: 5px;
-}
-.part-ear-r {
-  width: 12px;
-  height: 20px;
-  top: -48px;
-  left: 68px;
-  border-radius: 5px;
-}
-.part-arm-l {
-  width: 15px;
-  height: 60px;
-  top: 10px;
-  left: -18px;
-}
-.part-arm-r {
-  width: 15px;
-  height: 60px;
-  top: 10px;
-  left: 102px;
-}
-.part-guitar {
-  width: 80px;
-  height: 25px;
-  top: 60px;
-  left: 10px;
-  transform: rotate(-15deg);
-}
-.part-keyboard {
-  width: 120px;
-  height: 20px;
-  top: 145px;
-  left: -10px;
-}
-.part-drum {
-  width: 100px;
-  height: 30px;
-  top: 145px;
-  left: 0;
+.stage-part.active::before {
+  background: #00ffcc;
+  box-shadow: 0 0 6px #00ffcc;
 }
 
 .btn-stage {
@@ -1170,14 +1122,7 @@ h1 {
   }
 }
 
-/* Specific Part Positioning Adjustments */
-.part-arm-l, .part-arm-left-raise, .part-arm-left-swing { width: 15px; height: 60px; left: -18px; top: 20px; border-radius: 6px; }
-.part-arm-r, .part-arm-right-raise, .part-arm-right-swing { width: 15px; height: 60px; right: -18px; top: 20px; border-radius: 6px; }
-.part-body-lean, .part-body-twist-left, .part-body-twist-right { width: 100%; height: 20px; bottom: 0; left: 0; opacity: 0.3; }
-.part-eyelid-left, .part-eyelid-right { width: 10px; height: 4px; top: -38px; border-radius: 2px; }
-.part-eyelid-left { left: 31px; }
-.part-eyelid-right { left: 57px; }
-
+/* (schematic absolute positioning removed — stage now uses indicator pills) */
 
 /* Sync Indicator */
 .panel-header-sync {
@@ -1209,11 +1154,15 @@ h1 {
   height: 10px;
   background: #333;
   border-radius: 50%;
-  box-shadow: inset 0 0 3px rgba(0,0,0,0.5);
-  transition: background 0.05s ease, box-shadow 0.05s ease;
+  box-shadow: inset 0 0 3px rgba(0, 0, 0, 0.5);
+  transition:
+    background 0.05s ease,
+    box-shadow 0.05s ease;
 }
 
 .sync-led.active {
   background: #ff0055;
-  box-shadow: 0 0 10px #ff0055, 0 0 20px rgba(255, 0, 85, 0.4);
+  box-shadow:
+    0 0 10px #ff0055,
+    0 0 20px rgba(255, 0, 85, 0.4);
 }
