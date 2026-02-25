@@ -128,6 +128,11 @@ function setupEventListeners() {
     if (e.target.files[0]) loadWAVFile(e.target.files[0]);
   });
 
+  // Export BMC signal as WAV
+  document
+    .getElementById("export-wav-btn")
+    .addEventListener("click", exportSignalWAV);
+
   // Custom Show Builder
   const customWavInput = document.getElementById("custom-wav-input");
   const generateBtn = document.getElementById("generate-show-btn");
@@ -1241,6 +1246,226 @@ async function buildCustomShowtape(file, title, band) {
   } catch (err) {
     statusEl.style.color = "#f44";
     statusEl.textContent = `\u2717 ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Offline BMC signal WAV export
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Encode a Float32Array of PCM samples into a 16-bit mono WAV Blob.
+ */
+function encodeWAV(samples, sampleRate) {
+  const numSamples = samples.length;
+  const buffer = new ArrayBuffer(44 + numSamples * 2);
+  const view = new DataView(buffer);
+  function writeStr(off, str) {
+    for (let i = 0; i < str.length; i++)
+      view.setUint8(off + i, str.charCodeAt(i));
+  }
+  writeStr(0, "RIFF");
+  view.setUint32(4, 36 + numSamples * 2, true);
+  writeStr(8, "WAVE");
+  writeStr(12, "fmt ");
+  view.setUint32(16, 16, true); // PCM chunk size
+  view.setUint16(20, 1, true); // PCM format
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); // byte rate (16-bit mono)
+  view.setUint16(32, 2, true); // block align
+  view.setUint16(34, 16, true); // bits per sample
+  writeStr(36, "data");
+  view.setUint32(40, numSamples * 2, true);
+  let off = 44;
+  for (let i = 0; i < numSamples; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    off += 2;
+  }
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
+/**
+ * Offline-render the full BMC signal track for the currently selected
+ * showtape and trigger a browser download of the resulting WAV file.
+ *
+ * Mirrors the real-time TDM stream engine exactly:
+ *   - 20 fps, 11-byte TDM frames, 2400 bps BMC encoding
+ *   - Each sequence fires for one frame (50 ms), then the slot auto-clears
+ *   - Idle frames are rendered as silence (no background beep)
+ */
+async function exportSignalWAV() {
+  if (!currentShowtapeId) {
+    alert("Please select a showtape first.");
+    return;
+  }
+
+  const tape = SHOWTAPES[currentShowtapeId];
+  const btn = document.getElementById("export-wav-btn");
+  const statusEl = document.getElementById("export-wav-status");
+  btn.disabled = true;
+  statusEl.style.color = "";
+  statusEl.textContent = "Rendering…";
+
+  try {
+    // Build character → TDM slot map for this tape's band
+    const bandKey = tape.band || currentBand;
+    const bandCfg = BAND_CONFIG[bandKey] || BAND_CONFIG[currentBand];
+    const bandChars = Object.values(bandCfg.characters).map((c) => c.name);
+    const slotMap = new Map();
+    bandChars.forEach((name, i) => {
+      if (i < 8) slotMap.set(name, i);
+    });
+
+    // Signal constants (match CyberstarSignalGenerator)
+    const SAMPLE_RATE = 48000;
+    const BITRATE = 2400;
+    const FRAME_RATE = 20;
+    const AMPLITUDE = 0.85;
+    const NOISE_LEVEL = 0.015;
+    const LOWPASS_HZ = 5000;
+    const VOLUME = currentPlaybackState.volume;
+    const FRAME_MS = 1000 / FRAME_RATE; // 50 ms
+
+    const durationMs = tape.duration;
+    const totalFrames = Math.ceil(durationMs / FRAME_MS);
+    const samplesPerBit = SAMPLE_RATE / BITRATE;
+    const samplesPerFrame = Math.ceil(11 * 8 * samplesPerBit);
+    const scale = AMPLITUDE * VOLUME;
+
+    // Inline BMC helpers (no AudioContext dependency)
+    function encodeBMCBits(bytes) {
+      const bits = [];
+      for (let i = 0; i < bytes.length; i++) {
+        const byte = bytes[i];
+        for (let b = 7; b >= 0; b--) bits.push((byte >> b) & 1);
+      }
+      return bits;
+    }
+
+    function makeBMCWave(bits) {
+      const w = new Float32Array(Math.ceil(bits.length * samplesPerBit));
+      let level = 1;
+      for (let bi = 0; bi < bits.length; bi++) {
+        const start = Math.floor(bi * samplesPerBit);
+        const end = Math.floor((bi + 1) * samplesPerBit);
+        const mid = Math.floor(start + samplesPerBit / 2);
+        if (bits[bi] === 1) {
+          for (let i = start; i < mid; i++) w[i] = level;
+          level *= -1;
+          for (let i = mid; i < end; i++) w[i] = level;
+          level *= -1;
+        } else {
+          for (let i = start; i < end; i++) w[i] = level;
+          level *= -1;
+        }
+      }
+      if (NOISE_LEVEL > 0) {
+        for (let i = 0; i < w.length; i++) {
+          w[i] += (Math.random() - 0.5) * 2 * NOISE_LEVEL;
+          w[i] = Math.max(-1, Math.min(1, w[i]));
+        }
+      }
+      return w;
+    }
+
+    function lowpass(w) {
+      const rc = 1.0 / (2 * Math.PI * LOWPASS_HZ);
+      const alpha = 1 / SAMPLE_RATE / (rc + 1 / SAMPLE_RATE);
+      const f = new Float32Array(w.length);
+      f[0] = w[0];
+      for (let i = 1; i < w.length; i++)
+        f[i] = f[i - 1] + alpha * (w[i] - f[i - 1]);
+      return f;
+    }
+
+    // Pre-allocate output
+    const output = new Float32Array(totalFrames * samplesPerFrame);
+    let outOffset = 0;
+
+    // Simulation state
+    const channelSlots = new Uint8Array(8);
+    const slotClearAtFrame = new Int32Array(8).fill(-1);
+    const seqs = [...tape.sequences].sort((a, b) => a.time - b.time);
+    let seqIdx = 0;
+
+    for (let f = 0; f < totalFrames; f++) {
+      // Yield to browser every 200 frames to stay responsive
+      if (f % 200 === 0 && f > 0) {
+        statusEl.textContent = `Rendering… ${Math.round((f / totalFrames) * 100)}%`;
+        await new Promise((r) => setTimeout(r, 0));
+      }
+
+      const frameStartMs = f * FRAME_MS;
+      const frameEndMs = frameStartMs + FRAME_MS;
+
+      // Auto-clear slots whose 1-frame hold has expired
+      for (let s = 0; s < 8; s++) {
+        if (slotClearAtFrame[s] >= 0 && f >= slotClearAtFrame[s]) {
+          channelSlots[s] = 0x00;
+          slotClearAtFrame[s] = -1;
+        }
+      }
+
+      // Apply all sequences whose time falls inside this frame window
+      while (seqIdx < seqs.length && seqs[seqIdx].time < frameEndMs) {
+        const seq = seqs[seqIdx++];
+        if (
+          seq.time >= frameStartMs &&
+          seq.character &&
+          seq.character !== "All" &&
+          seq.data
+        ) {
+          const slot = slotMap.get(seq.character);
+          if (slot !== undefined) {
+            channelSlots[slot] = seq.data[seq.data.length - 1];
+            slotClearAtFrame[slot] = f + 1;
+          }
+        }
+      }
+
+      const frameOut = outOffset;
+      const hasActivity = channelSlots.some((b) => b !== 0x00);
+
+      if (hasActivity) {
+        const frame = new Uint8Array(11);
+        frame[0] = 0xff;
+        frame[1] = 0x00;
+        for (let i = 0; i < 8; i++) frame[2 + i] = channelSlots[i];
+        frame[10] = 0xaa;
+        let wave = makeBMCWave(encodeBMCBits(frame));
+        wave = lowpass(wave);
+        const len = Math.min(wave.length, output.length - frameOut);
+        for (let i = 0; i < len; i++)
+          output[frameOut + i] = Math.max(-1, Math.min(1, wave[i] * scale));
+      }
+      // idle frames remain 0.0 (silence) — already zero-filled
+
+      outOffset += samplesPerFrame;
+    }
+
+    statusEl.textContent = "Encoding WAV…";
+    await new Promise((r) => setTimeout(r, 0));
+
+    const wavBlob = encodeWAV(output.subarray(0, outOffset), SAMPLE_RATE);
+    const url = URL.createObjectURL(wavBlob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${tape.title.replace(/[^a-z0-9_\-]/gi, "_")}_BMC_signal.wav`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 15000);
+
+    statusEl.style.color = "#0f8";
+    statusEl.textContent = `\u2713 Downloaded: ${tape.title} BMC signal WAV`;
+  } catch (err) {
+    statusEl.style.color = "#f44";
+    statusEl.textContent = `\u2717 ${err.message}`;
+    console.error("WAV export error:", err);
   } finally {
     btn.disabled = false;
   }
