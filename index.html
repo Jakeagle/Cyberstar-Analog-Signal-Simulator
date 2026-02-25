@@ -205,6 +205,36 @@
             <h3>💾 Saved Custom Shows</h3>
           </div>
           <div id="custom-show-list" class="custom-show-list"></div>
+
+          <!-- Show Import -->
+          <div class="show-import-panel">
+            <h3>📥 Import Show File</h3>
+            <p class="builder-info">
+              Import a previously exported <code>.cybershow.json</code> file.
+              Edit the JSON to refine timings, add notes, or hand-craft new cues
+              — then import it back to play it.
+            </p>
+            <div class="builder-row">
+              <label for="import-show-input" class="btn btn-file"
+                >📂 Choose .cybershow.json</label
+              >
+              <input
+                type="file"
+                id="import-show-input"
+                accept=".json,.cybershow.json"
+                style="display: none"
+              />
+              <span id="import-show-name" class="file-name-display"
+                >No file chosen</span
+              >
+            </div>
+            <div class="builder-row builder-row-action">
+              <button id="import-show-btn" class="btn btn-primary" disabled>
+                📥 Import Show
+              </button>
+              <span id="import-show-status" class="generate-status"></span>
+            </div>
+          </div>
         </section>
 
         <!-- Manual Signal Generator Section -->

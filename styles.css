@@ -836,6 +836,32 @@ h1 {
   display: flex;
   gap: 8px;
   flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+/* Show Import Panel */
+.show-import-panel {
+  margin-top: 28px;
+  padding: 18px 20px;
+  background: rgba(0, 212, 100, 0.04);
+  border: 1px solid rgba(0, 212, 100, 0.2);
+  border-radius: 8px;
+}
+
+.show-import-panel h3 {
+  font-size: 1em;
+  color: #00d464;
+  margin: 0 0 10px;
+  letter-spacing: 1px;
+}
+
+.show-import-panel code {
+  font-family: "Courier New", monospace;
+  background: rgba(255, 255, 255, 0.07);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 0.88em;
+  color: #aef;
 }
 
 .btn-sm {
@@ -852,6 +878,17 @@ h1 {
 .btn-danger:hover {
   background: rgba(255, 60, 60, 0.25);
   border-color: rgba(255, 60, 60, 0.7);
+}
+
+.btn-export {
+  background: rgba(0, 200, 255, 0.08);
+  border-color: rgba(0, 200, 255, 0.35);
+  color: #60dfff;
+}
+
+.btn-export:hover {
+  background: rgba(0, 200, 255, 0.2);
+  border-color: rgba(0, 200, 255, 0.65);
 }
 
 /* =========================================================

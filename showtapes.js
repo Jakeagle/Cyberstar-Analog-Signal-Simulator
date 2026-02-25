@@ -676,11 +676,11 @@ function buildComeTogetherRFESongMapped() {
  * @returns {{ sequences: object[], totalDurationMs: number }}
  */
 function buildDiagnosticSequences(characterList) {
-  const REPS       = 3;    // pulses per movement
-  const ON_MS      = 300;  // how long to hold the bit ON (ms)
-  const REP_CYCLE  = 700;  // total time allocated per rep (ON + gap)
-  const MOVE_GAP   = 600;  // extra silence between movements
-  const CHAR_GAP   = 1500; // silence between characters
+  const REPS = 3; // pulses per movement
+  const ON_MS = 300; // how long to hold the bit ON (ms)
+  const REP_CYCLE = 700; // total time allocated per rep (ON + gap)
+  const MOVE_GAP = 600; // extra silence between movements
+  const CHAR_GAP = 1500; // silence between characters
 
   const sequences = [];
   let t = 1000; // 1 s lead-in

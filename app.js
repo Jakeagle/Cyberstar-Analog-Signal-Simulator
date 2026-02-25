@@ -312,6 +312,30 @@ function setupEventListeners() {
 
   // Custom Show Builder
   const customWavInput = document.getElementById("custom-wav-input");
+  // ── Import Show JSON wiring ────────────────────────────────────────────
+  const importInput = document.getElementById("import-show-input");
+  const importBtn = document.getElementById("import-show-btn");
+  const importName = document.getElementById("import-show-name");
+  if (importInput) {
+    importInput.addEventListener("change", () => {
+      const file = importInput.files[0];
+      if (file) {
+        importName.textContent = file.name;
+        importBtn.disabled = false;
+        document.getElementById("import-show-status").textContent = "";
+      } else {
+        importName.textContent = "No file chosen";
+        importBtn.disabled = true;
+      }
+    });
+  }
+  if (importBtn) {
+    importBtn.addEventListener("click", () => {
+      const file = importInput && importInput.files[0];
+      if (file) importShowJSON(file);
+    });
+  }
+
   const generateBtn = document.getElementById("generate-show-btn");
 
   customWavInput.addEventListener("change", (e) => {
@@ -1024,10 +1048,176 @@ function renderCustomShowList() {
       <div class="custom-show-actions">
         <button class="btn btn-sm" onclick="selectAndPlayCustomShow('${tape.id}')">&#9654; Play</button>
         <button class="btn btn-sm btn-danger" onclick="deleteCustomShowtape('${tape.id}')">&#10005; Delete</button>
+        <button class="btn btn-sm btn-export" onclick="exportShowJSON('${tape.id}')">&#8595; Export JSON</button>
       </div>
     </div>`,
     )
     .join("");
+}
+
+/**
+ * Export a showtape as a human-editable .cybershow.json file.
+ * The file preserves all sequence cues in a clean, documented format
+ * so the user can refine timings, add notes, and re-import.
+ */
+function exportShowJSON(id) {
+  const tape = SHOWTAPES[id];
+  if (!tape) return;
+
+  // Build a clean, readable export object
+  const exportObj = {
+    cyberstar_show: true,
+    version: "2.1",
+    title: tape.title,
+    band: tape.band, // "rock" | "munch"
+    duration: tape.duration, // ms
+    bpm: tape.bpm || null,
+    description: tape.description || "",
+    // ── Sequence cues ───────────────────────────────────────────────────────
+    // Each entry is one bit-state change on a character's movement actuator.
+    //
+    // Fields:
+    //   time        (ms)    when this cue fires, from show start
+    //   character   (str)   character name, must match CHARACTER_MOVEMENTS
+    //   movement    (str)   movement key, e.g. "mouth", "head_left"
+    //   state       (bool)  true = actuator ON, false = OFF
+    //   note        (str)   optional freeform annotation (ignored at import)
+    sequences: tape.sequences
+      .filter(
+        (s) => s.character && s.movement && typeof s.state !== "undefined",
+      )
+      .sort((a, b) => a.time - b.time)
+      .map((s) => ({
+        time: s.time,
+        character: s.character,
+        movement: s.movement,
+        state: s.state,
+        note: s.note || "",
+      })),
+  };
+
+  const json = JSON.stringify(exportObj, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${tape.title.replace(/[^a-z0-9_\-]/gi, "_")}.cybershow.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 15000);
+
+  updateSignalMonitor(
+    `Exported show: "${tape.title}" (${exportObj.sequences.length} cues)`,
+  );
+}
+
+/**
+ * Validate and import a .cybershow.json file, adding it as a custom showtape.
+ */
+function importShowJSON(file) {
+  const statusEl = document.getElementById("import-show-status");
+  const btn = document.getElementById("import-show-btn");
+  btn.disabled = true;
+  statusEl.style.color = "";
+  statusEl.textContent = "Reading file…";
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const obj = JSON.parse(e.target.result);
+
+      // Basic format validation
+      if (!obj.cyberstar_show)
+        throw new Error("Not a valid .cybershow.json file.");
+      if (!obj.band || !["rock", "munch"].includes(obj.band))
+        throw new Error(
+          'Missing or invalid "band" field. Must be "rock" or "munch".',
+        );
+      if (!Array.isArray(obj.sequences) || obj.sequences.length === 0)
+        throw new Error("No sequences found in file.");
+
+      // Validate and clean each cue
+      const sequences = [];
+      let skipped = 0;
+      for (const s of obj.sequences) {
+        if (
+          typeof s.time !== "number" ||
+          !s.character ||
+          !s.movement ||
+          typeof s.state !== "boolean"
+        ) {
+          skipped++;
+          continue;
+        }
+        const charEntry = CHARACTER_MOVEMENTS[s.character];
+        if (!charEntry || !charEntry.movements[s.movement]) {
+          skipped++;
+          continue;
+        }
+        sequences.push({
+          time: Math.max(0, Math.round(s.time)),
+          character: s.character,
+          movement: s.movement,
+          state: s.state,
+          note: s.note || "",
+          executed: false,
+        });
+      }
+
+      if (sequences.length === 0)
+        throw new Error(
+          `All ${obj.sequences.length} cues were invalid or referenced unknown characters/movements.`,
+        );
+
+      // Calculate duration: last cue time + 2 s tail, or use file value
+      const lastCue = sequences[sequences.length - 1].time;
+      const duration =
+        obj.duration && obj.duration > lastCue ? obj.duration : lastCue + 2000;
+
+      const id = `imported-${Date.now()}`;
+      const tape = {
+        id,
+        title: obj.title || file.name.replace(/\.cybershow\.json$/i, ""),
+        description: obj.description || `Imported from ${file.name}`,
+        band: obj.band,
+        bpm: obj.bpm || null,
+        duration,
+        bitrate: 4800,
+        isCustom: true,
+        sequences,
+      };
+
+      SHOWTAPES[id] = tape;
+      saveCustomShowtape(tape);
+
+      const msg =
+        skipped > 0
+          ? `✓ Imported "${tape.title}" — ${sequences.length} cues loaded, ${skipped} invalid cues skipped.`
+          : `✓ Imported "${tape.title}" — ${sequences.length} cues loaded.`;
+
+      statusEl.style.color = "#0f8";
+      statusEl.textContent = msg;
+      updateSignalMonitor(msg);
+
+      // Reset file input
+      document.getElementById("import-show-input").value = "";
+      document.getElementById("import-show-name").textContent =
+        "No file chosen";
+      btn.disabled = true;
+    } catch (err) {
+      statusEl.style.color = "#f44";
+      statusEl.textContent = `✗ ${err.message}`;
+    } finally {
+      btn.disabled = true; // stays disabled until new file chosen
+    }
+  };
+  reader.onerror = () => {
+    statusEl.style.color = "#f44";
+    statusEl.textContent = "✗ Failed to read file.";
+    btn.disabled = true;
+  };
+  reader.readAsText(file);
 }
 
 /**
