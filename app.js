@@ -556,6 +556,14 @@ function playbackLoop() {
             const newState =
               typeof cmd.state !== "undefined" ? cmd.state : true;
             signalGenerator.setBit(m.track, m.bit, newState);
+
+            // Legacy backward compatibility:
+            // If movement has no 'state' (legacy JSON), pulse it OFF after 120ms
+            if (typeof cmd.state === "undefined") {
+              setTimeout(() => {
+                signalGenerator.setBit(m.track, m.bit, false);
+              }, 120);
+            }
           }
         }
       }
@@ -749,7 +757,18 @@ function startSongPlayback(offsetMs, atContextTime) {
 
   const ac = signalGenerator.audioContext;
   songGainNode = ac.createGain();
-  songGainNode.gain.setValueAtTime(currentPlaybackState.volume, ac.currentTime);
+
+  // Custom uploaded tracks are typically quieter than mastered showtape music,
+  // so boost them. Pre-made showtapes play at the configured volume unchanged.
+  const isCustom = !!(
+    SHOWTAPES[currentShowtapeId] && SHOWTAPES[currentShowtapeId].isCustom
+  );
+  const CUSTOM_BOOST = 2.5; // multiplier for uploaded WAV files
+  const gain = isCustom
+    ? Math.min(2.0, currentPlaybackState.volume * CUSTOM_BOOST)
+    : currentPlaybackState.volume;
+
+  songGainNode.gain.setValueAtTime(gain, ac.currentTime);
   songGainNode.connect(ac.destination);
 
   songSource = ac.createBufferSource();
@@ -897,10 +916,13 @@ function loadCustomShowtapes() {
     stored = [];
   }
   stored.forEach((tape) => {
-    const sequences = tape.sequences.map((s) => ({
-      ...s,
-      data: new Uint8Array(s.data),
-    }));
+    const sequences = tape.sequences.map((s) => {
+      const copy = { ...s };
+      if (s.data) {
+        copy.data = new Uint8Array(s.data);
+      }
+      return copy;
+    });
     SHOWTAPES[tape.id] = { ...tape, sequences };
   });
   renderCustomShowList();
@@ -919,7 +941,13 @@ function saveCustomShowtape(tape) {
   }
   const serializable = {
     ...tape,
-    sequences: tape.sequences.map((s) => ({ ...s, data: Array.from(s.data) })),
+    sequences: tape.sequences.map((s) => {
+      const copy = { ...s };
+      if (s.data instanceof Uint8Array) {
+        copy.data = Array.from(s.data);
+      }
+      return copy;
+    }),
   };
   stored.push(serializable);
   try {
@@ -1054,122 +1082,6 @@ function selectAndPlayCustomShow(id) {
  * @param   {number}      bpm   used to set minimum hold proportional to tempo
  * @returns {number[]}          Jaw-open onset times in ms
  */
-function analyzeVocalOnsets(audioBuffer, bpm) {
-  const sr = audioBuffer.sampleRate;
-  const numCh = audioBuffer.numberOfChannels;
-  const len = audioBuffer.length;
-
-  // Mix to mono
-  const mono = new Float32Array(len);
-  for (let ch = 0; ch < numCh; ch++) {
-    const d = audioBuffer.getChannelData(ch);
-    for (let i = 0; i < len; i++) mono[i] += d[i] / numCh;
-  }
-
-  // ── One-pole IIR high-pass (≈800 Hz) ──────────────────────────────────
-  const RC_HP = 1 / (2 * Math.PI * 800);
-  const dt = 1 / sr;
-  const alphaHP = RC_HP / (RC_HP + dt);
-  const hi = new Float32Array(len);
-  hi[0] = mono[0];
-  for (let i = 1; i < len; i++)
-    hi[i] = alphaHP * (hi[i - 1] + mono[i] - mono[i - 1]);
-
-  // ── One-pole IIR low-pass (≈200 Hz) — kick/bass band ──────────────────
-  const RC_LP = 1 / (2 * Math.PI * 200);
-  const alphaLP = dt / (RC_LP + dt);
-  const lo = new Float32Array(len);
-  lo[0] = mono[0];
-  for (let i = 1; i < len; i++)
-    lo[i] = lo[i - 1] + alphaLP * (mono[i] - lo[i - 1]);
-
-  // ── Short-time energy per frame (~10.7 ms at 48 kHz) ──────────────────
-  const FRAME = 512;
-  const nFrames = Math.floor(len / FRAME);
-  const hiEnergy = new Float32Array(nFrames);
-  const loEnergy = new Float32Array(nFrames);
-  for (let f = 0; f < nFrames; f++) {
-    let sh = 0,
-      sl = 0;
-    const off = f * FRAME;
-    for (let i = 0; i < FRAME; i++) {
-      sh += hi[off + i] ** 2;
-      sl += lo[off + i] ** 2;
-    }
-    hiEnergy[f] = sh / FRAME;
-    loEnergy[f] = sl / FRAME;
-  }
-
-  // ── Prefix sums for O(1) rolling average ──────────────────────────────
-  const cumHi = new Float64Array(nFrames + 1);
-  for (let f = 0; f < nFrames; f++) cumHi[f + 1] = cumHi[f] + hiEnergy[f];
-
-  // Rolling local-average window: ±120 ms each side
-  const HALF = Math.round((0.12 * sr) / FRAME);
-
-  // Minimum hold before the jaw is allowed to close (~80 ms or ½ beat if slower)
-  const beatMs = bpm > 0 ? 60000 / bpm : 500;
-  const MIN_HOLD_FRAMES = Math.max(
-    Math.round((0.08 * sr) / FRAME),
-    Math.round((((beatMs * 0.45) / 1000) * sr) / FRAME),
-  );
-
-  // Anti-lock: force re-open after this many closed frames (~400 ms)
-  const MAX_CLOSED_FRAMES = Math.round((0.4 * sr) / FRAME);
-
-  const BASS_SUPPRESS = 3.0; // ignore frame if bass is 3× louder than highs
-
-  // ── Hysteresis thresholds ──────────────────────────────────────────────
-  const T1 = 1.4; // normalized energy required to OPEN  (upper)
-  const T2 = 0.85; // normalized energy below which jaw CLOSES (lower)
-
-  const onsets = []; // jaw-open event times in ms
-  let jawOpen = false;
-  let holdFrames = 0; // frames elapsed since jaw opened
-  let framesSinceClosed = 0; // frames elapsed since jaw closed
-
-  for (let f = 1; f < nFrames - 1; f++) {
-    const bassHit = loEnergy[f] > hiEnergy[f] * BASS_SUPPRESS;
-
-    const lo2 = Math.max(0, f - HALF);
-    const hi2 = Math.min(nFrames, f + HALF);
-    const localAvg = (cumHi[hi2] - cumHi[lo2]) / (hi2 - lo2);
-    const normalized = localAvg > 0 ? hiEnergy[f] / localAvg : 0;
-
-    if (!jawOpen) {
-      framesSinceClosed++;
-
-      // Primary open: energy crosses T1
-      if (!bassHit && normalized >= T1) {
-        jawOpen = true;
-        holdFrames = 0;
-        framesSinceClosed = 0;
-        onsets.push(Math.round((f * FRAME * 1000) / sr));
-      }
-      // Anti-lock: been closed too long while vocal signal is still present
-      else if (
-        framesSinceClosed >= MAX_CLOSED_FRAMES &&
-        !bassHit &&
-        normalized > 0.7
-      ) {
-        jawOpen = true;
-        holdFrames = 0;
-        framesSinceClosed = 0;
-        onsets.push(Math.round((f * FRAME * 1000) / sr));
-      }
-    } else {
-      holdFrames++;
-      // Only allow close after minimum hold has elapsed
-      if (holdFrames >= MIN_HOLD_FRAMES) {
-        if (bassHit || normalized < T2) {
-          jawOpen = false;
-          framesSinceClosed = 0;
-        }
-      }
-    }
-  }
-  return onsets;
-}
 
 /**
  * Energy-comparative onset detector.
@@ -1262,83 +1174,6 @@ function estimateBPM(beatTimes) {
  *   Cues are deduplicated and filtered so they don't collide with
  *   an existing mouth cue within 60 ms.
  */
-function generateCustomSequences(beatTimes, band, vocalOnsets = []) {
-  const characters = BAND_CHARACTERS[band] || [];
-  if (characters.length === 0) return [];
-
-  const frontman = band === "rock" ? "Rolfe" : "Chuck E. Cheese";
-  const drummer = band === "rock" ? "Dook LaRue" : "Pasqually";
-  const backingChars = characters.filter((c) => c !== frontman);
-
-  const sequences = [];
-
-  /**
-   * Safe movement adder with explicit state
-   */
-  const addMove = (t, char, move, state = true) => {
-    sequences.push({
-      time: Math.max(0, Math.round(t)),
-      character: char,
-      movement: move,
-      state: state, // Explicit ON/OFF
-      movement_display: `${move} ${state ? "ON" : "OFF"}`,
-      executed: false,
-    });
-  };
-
-  // ── Body movements on beat grid ─────────────────────────────────────────
-  beatTimes.forEach((beatMs, i) => {
-    const charIdx = i % backingChars.length;
-    const char = backingChars[charIdx] || characters[i % characters.length];
-    const pattern = MOVEMENT_PATTERNS[char];
-    if (!pattern || pattern.length === 0) return;
-
-    const nonMouthPattern = pattern.filter((m) => m !== "mouth");
-    const move =
-      nonMouthPattern[i % nonMouthPattern.length] ||
-      pattern[i % pattern.length];
-
-    if (move !== "mouth") {
-      addMove(beatMs, char, move, true);
-      addMove(beatMs + 150, char, move, false); // Quick pulse
-    }
-
-    // Every 4th beat: frontman body accent
-    if (i % 4 === 0 && characters.includes(frontman)) {
-      const fp = (MOVEMENT_PATTERNS[frontman] || []).filter(
-        (m) => m !== "mouth",
-      );
-      if (fp.length) {
-        const move = fp[Math.floor(i / 4) % fp.length];
-        addMove(beatMs + 20, frontman, move, true);
-        addMove(beatMs + 200, frontman, move, false);
-      }
-    }
-  });
-
-  // ── Jaw (mouth) cues driven by vocal onsets ─────────────────────────────
-  const JAW_MIN_GAP = 60;
-  const songEnd = beatTimes.length
-    ? beatTimes[beatTimes.length - 1] + 2000
-    : Infinity;
-  let lastMouthOpen = -1;
-
-  vocalOnsets.forEach((onsetMs, i) => {
-    if (onsetMs > songEnd) return;
-    if (onsetMs - lastMouthOpen < JAW_MIN_GAP) return;
-
-    addMove(onsetMs, frontman, "mouth", true); // OPEN
-    lastMouthOpen = onsetMs;
-
-    const nextOnset = vocalOnsets[i + 1] || onsetMs + 600;
-    const gap = nextOnset - onsetMs;
-    const holdMs = Math.max(80, Math.min(350, Math.round(gap * 0.7)));
-    addMove(onsetMs + holdMs, frontman, "mouth", false); // CLOSE
-  });
-
-  sequences.sort((a, b) => a.time - b.time);
-  return sequences;
-}
 
 /**
  * Frequency-specific onset analysis (Emergency Patch #3)
@@ -1530,7 +1365,7 @@ async function buildCustomShowtape(file, title, band) {
     const tape = {
       id,
       title,
-      description: `Custom show generated from \u201c${file.name}\u201d. Detected ~${bpm} BPM, ${beatTimes.length} beats, ${vocalOnsets.length} vocal onsets. ${sequences.length} choreography cues for ${bandLabel}.`,
+      description: `Custom show generated from \u201c${file.name}\u201d. Detected ~${bpm} BPM, ${beatTimes.length} beats, ${binnedOnsets.treble.length} vocal cues. ${sequences.length} choreography cues for ${bandLabel}.`,
       duration: durationMs,
       bitrate: 600,
       band,
@@ -1602,6 +1437,48 @@ function encodeWAV(samples, sampleRate) {
 }
 
 /**
+ * Encode a stereo interleaved Float32Array (L,R,L,R,...) into a
+ * 16-bit stereo WAV Blob. TD track = Left, BD track = Right.
+ * This is the correct format for Cyberstar hardware playback.
+ */
+function encodeStereoWAV(interleavedSamples, sampleRate) {
+  const numFrames = interleavedSamples.length / 2; // sample frames (L+R pairs)
+  const numSamples = interleavedSamples.length; // total individual samples
+  const numChannels = 2;
+  const bitsPerSample = 16;
+  const blockAlign = numChannels * (bitsPerSample / 8); // 4 bytes
+  const byteRate = sampleRate * blockAlign;
+  const dataBytes = numSamples * (bitsPerSample / 8);
+
+  const buffer = new ArrayBuffer(44 + dataBytes);
+  const view = new DataView(buffer);
+  function writeStr(off, str) {
+    for (let i = 0; i < str.length; i++)
+      view.setUint8(off + i, str.charCodeAt(i));
+  }
+  writeStr(0, "RIFF");
+  view.setUint32(4, 36 + dataBytes, true);
+  writeStr(8, "WAVE");
+  writeStr(12, "fmt ");
+  view.setUint32(16, 16, true); // PCM chunk size
+  view.setUint16(20, 1, true); // PCM format
+  view.setUint16(22, numChannels, true); // stereo
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeStr(36, "data");
+  view.setUint32(40, dataBytes, true);
+  let off = 44;
+  for (let i = 0; i < numSamples; i++) {
+    const s = Math.max(-1, Math.min(1, interleavedSamples[i]));
+    view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    off += 2;
+  }
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
+/**
  * Offline-render the full BMC signal track for the currently selected
  * showtape and trigger a browser download of the resulting WAV file.
  *
@@ -1633,21 +1510,22 @@ async function exportSignalWAV() {
       if (i < 8) slotMap.set(name, i);
     });
 
-    // Signal constants (match CyberstarSignalGenerator)
+    // Signal constants (Match Official RFE 4800 Baud v2.0 spec)
     const SAMPLE_RATE = 48000;
-    const BITRATE = 2400;
-    const FRAME_RATE = 20;
+    const BITRATE = 4800;
+    const FRAME_RATE = 50;
     const AMPLITUDE = 0.85;
     const NOISE_LEVEL = 0.015;
-    const LOWPASS_HZ = 5000;
+    const LOWPASS_HZ = 8000;
     const VOLUME = currentPlaybackState.volume;
-    const FRAME_MS = 1000 / FRAME_RATE; // 50 ms
+    const FRAME_MS = 1000 / FRAME_RATE; // 20 ms
+    const bitsPerFrame = 12 * 8; // 96 bits spec
+    const samplesPerBit = SAMPLE_RATE / BITRATE;
+    const samplesPerFrame = Math.ceil(bitsPerFrame * samplesPerBit);
+    const scale = AMPLITUDE * VOLUME;
 
     const durationMs = tape.duration;
     const totalFrames = Math.ceil(durationMs / FRAME_MS);
-    const samplesPerBit = SAMPLE_RATE / BITRATE;
-    const samplesPerFrame = Math.ceil(11 * 8 * samplesPerBit);
-    const scale = AMPLITUDE * VOLUME;
 
     // Inline BMC helpers (no AudioContext dependency)
     function encodeBMCBits(bytes) {
@@ -1695,13 +1573,15 @@ async function exportSignalWAV() {
       return f;
     }
 
-    // Pre-allocate output
-    const output = new Float32Array(totalFrames * samplesPerFrame);
+    // Pre-allocate dual-track bit buffers (12 bytes each = 96 bits per spec)
+    const trackTD = new Uint8Array(12);
+    const trackBD = new Uint8Array(12);
+
+    // Pre-allocate output (stereo interleaved: L=TD, R=BD)
+    const outL = new Float32Array(totalFrames * samplesPerFrame);
+    const outR = new Float32Array(totalFrames * samplesPerFrame);
     let outOffset = 0;
 
-    // Simulation state
-    const channelSlots = new Uint8Array(8);
-    const slotClearAtFrame = new Int32Array(8).fill(-1);
     const seqs = [...tape.sequences].sort((a, b) => a.time - b.time);
     let seqIdx = 0;
 
@@ -1715,47 +1595,58 @@ async function exportSignalWAV() {
       const frameStartMs = f * FRAME_MS;
       const frameEndMs = frameStartMs + FRAME_MS;
 
-      // Auto-clear slots whose 1-frame hold has expired
-      for (let s = 0; s < 8; s++) {
-        if (slotClearAtFrame[s] >= 0 && f >= slotClearAtFrame[s]) {
-          channelSlots[s] = 0x00;
-          slotClearAtFrame[s] = -1;
-        }
-      }
-
       // Apply all sequences whose time falls inside this frame window
       while (seqIdx < seqs.length && seqs[seqIdx].time < frameEndMs) {
         const seq = seqs[seqIdx++];
-        if (
-          seq.time >= frameStartMs &&
-          seq.character &&
-          seq.character !== "All" &&
-          seq.data
-        ) {
+        if (seq.time < frameStartMs) continue;
+
+        // NEW format: character + movement + state (bitwise)
+        if (seq.character && seq.movement && typeof seq.state !== "undefined") {
+          const charEntry = CHARACTER_MOVEMENTS[seq.character];
+          if (charEntry) {
+            const m = charEntry.movements[seq.movement];
+            if (m) {
+              const buf = m.track === "TD" ? trackTD : trackBD;
+              const byteIdx = Math.floor(m.bit / 8);
+              const bitPos = 7 - (m.bit % 8);
+              if (seq.state) {
+                buf[byteIdx] |= 1 << bitPos;
+              } else {
+                buf[byteIdx] &= ~(1 << bitPos);
+              }
+            }
+          }
+        }
+        // LEGACY format: raw data bytes per slot
+        else if (seq.data && seq.character && seq.character !== "All") {
           const slot = slotMap.get(seq.character);
-          if (slot !== undefined) {
-            channelSlots[slot] = seq.data[seq.data.length - 1];
-            slotClearAtFrame[slot] = f + 1;
+          if (slot !== undefined && slot < 8) {
+            // write data byte into the correct byte of trackTD
+            const byteIdx = slot % 12;
+            trackTD[byteIdx] = seq.data[seq.data.length - 1];
           }
         }
       }
 
-      const frameOut = outOffset;
-      const hasActivity = channelSlots.some((b) => b !== 0x00);
+      const hasActivity =
+        trackTD.some((b) => b !== 0) || trackBD.some((b) => b !== 0);
 
       if (hasActivity) {
-        const frame = new Uint8Array(11);
-        frame[0] = 0xff;
-        frame[1] = 0x00;
-        for (let i = 0; i < 8; i++) frame[2 + i] = channelSlots[i];
-        frame[10] = 0xaa;
-        let wave = makeBMCWave(encodeBMCBits(frame));
-        wave = lowpass(wave);
-        const len = Math.min(wave.length, output.length - frameOut);
-        for (let i = 0; i < len; i++)
-          output[frameOut + i] = Math.max(-1, Math.min(1, wave[i] * scale));
+        const waveL = lowpass(makeBMCWave(encodeBMCBits(trackTD)));
+        const waveR = lowpass(makeBMCWave(encodeBMCBits(trackBD)));
+        const len = Math.min(samplesPerFrame, outL.length - outOffset);
+        for (let i = 0; i < len; i++) {
+          outL[outOffset + i] = Math.max(
+            -1,
+            Math.min(1, (waveL[i] || 0) * scale),
+          );
+          outR[outOffset + i] = Math.max(
+            -1,
+            Math.min(1, (waveR[i] || 0) * scale),
+          );
+        }
       }
-      // idle frames remain 0.0 (silence) — already zero-filled
+      // idle frames remain 0.0 (silence)
 
       outOffset += samplesPerFrame;
     }
@@ -1763,7 +1654,14 @@ async function exportSignalWAV() {
     statusEl.textContent = "Encoding WAV…";
     await new Promise((r) => setTimeout(r, 0));
 
-    const wavBlob = encodeWAV(output.subarray(0, outOffset), SAMPLE_RATE);
+    // Interleave L+R into a stereo WAV
+    const stereo = new Float32Array(outOffset * 2);
+    for (let i = 0; i < outOffset; i++) {
+      stereo[i * 2] = outL[i];
+      stereo[i * 2 + 1] = outR[i];
+    }
+
+    const wavBlob = encodeStereoWAV(stereo, SAMPLE_RATE);
     const url = URL.createObjectURL(wavBlob);
     const a = document.createElement("a");
     a.href = url;

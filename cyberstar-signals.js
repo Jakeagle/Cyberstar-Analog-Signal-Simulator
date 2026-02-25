@@ -38,8 +38,9 @@ class CyberstarSignalGenerator {
     // Stream scheduling state
     this.isStreaming = false;
     this.nextFrameTime = 0;
+    this.lastSyncUIAt = 0; // throttle sync LED calls
     this.schedulerTimer = null;
-    this.SCHEDULE_AHEAD = 0.1; // pre-queue 100ms
+    this.SCHEDULE_AHEAD = 0.08; // pre-queue 80ms
 
     // Callback for UI updates (e.g. Sync LED)
     this.onFrameSync = null;
@@ -238,8 +239,12 @@ class CyberstarSignalGenerator {
     const bitsPerFrame = 12 * 8; // 96 bits
     const frameSamples = Math.ceil(bitsPerFrame * samplesPerBit);
 
-    // Call sync hook for UI (Emergency Patch #5)
-    if (this.onFrameSync) this.onFrameSync();
+    // Call sync hook for UI (Safe throttling to ~50Hz visual pulse)
+    const now = performance.now();
+    if (this.onFrameSync && now - this.lastSyncUIAt > 15) {
+      this.onFrameSync();
+      this.lastSyncUIAt = now;
+    }
 
     // Left Channel (TD)
     const bitsTD = this.encodeBMC(this.trackTD);
