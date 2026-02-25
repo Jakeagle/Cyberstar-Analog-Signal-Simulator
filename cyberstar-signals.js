@@ -31,11 +31,18 @@ class CyberstarSignalGenerator {
     this.trackTD = new Uint8Array(12);
     this.trackBD = new Uint8Array(12);
 
+    // State Comparison Buffer (Emergency Patch #1)
+    this.trackTD_last = new Uint8Array(12);
+    this.trackBD_last = new Uint8Array(12);
+
     // Stream scheduling state
     this.isStreaming = false;
     this.nextFrameTime = 0;
     this.schedulerTimer = null;
     this.SCHEDULE_AHEAD = 0.1; // pre-queue 100ms
+
+    // Callback for UI updates (e.g. Sync LED)
+    this.onFrameSync = null;
 
     this.initAudioContext();
   }
@@ -230,6 +237,9 @@ class CyberstarSignalGenerator {
     const samplesPerBit = this.sampleRate / this.bitrate;
     const bitsPerFrame = 12 * 8; // 96 bits
     const frameSamples = Math.ceil(bitsPerFrame * samplesPerBit);
+
+    // Call sync hook for UI (Emergency Patch #5)
+    if (this.onFrameSync) this.onFrameSync();
 
     // Left Channel (TD)
     const bitsTD = this.encodeBMC(this.trackTD);

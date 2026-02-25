@@ -284,12 +284,14 @@
 
         <!-- v2: 4800 Baud TDM Frame Monitor — Dual Bit Grids -->
         <section class="control-panel reveal-stagger">
-          <h2>📡 TDM Frame Monitor v2.0</h2>
-          <p class="builder-info">
-            Official 4800 Baud Spec: Dual 12-byte tracks (96 bits each).
-            <b>Track TD (Left)</b> = Character logic (Rolfe, Fats, Dook).
-            <b>Track BD (Right)</b> = Bass bits (Mitzi, Billy Bob, Beach Bear).
-          </p>
+          <div class="panel-header-sync">
+            <h2>📡 TDM Frame Monitor v2.0</h2>
+            <div class="sync-indicator-group">
+              <span class="sync-label">FRAME SYNC:</span>
+              <div id="sync-led" class="sync-led"></div>
+            </div>
+          </div>
+          <p class="builder-info"></p>
           <div id="led-grid" class="dual-grid-container"></div>
         </section>
 
