@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cyberstar Analog Signal Simulator</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>🎬 Cyberstar BMC Signal Simulator</h1>
+        <p class="subtitle">
+          Biphase Mark Code Animatronic Control System Emulator
+        </p>
+        <p class="subtitle-info">
+          Recreates the analog control signals from Creative Engineering's
+          Cyberstar systems using digital BMC encoding
+        </p>
+
+        <div class="band-selector">
+          <label for="band-select">Select Band:</label>
+          <select id="band-select">
+            <option value="munch">🎸 Munch's Make Believe Band</option>
+            <option value="rock">🔥 The Rock - Afire Explosion</option>
+          </select>
+        </div>
+      </header>
+
+      <main>
+        <!-- Show Tape Player Section -->
+        <section class="control-panel">
+          <h2>Show Tape Player</h2>
+
+          <div class="tape-selector">
+            <label for="showtape-select">Select Showtape:</label>
+            <select id="showtape-select">
+              <option value="">-- Choose a showtape --</option>
+              <option value="welcome-sequence">Welcome Sequence</option>
+              <option value="action-demo">Action Demo</option>
+              <option value="full-show">Full Show Routine</option>
+              <option value="test-patterns">Test Patterns</option>
+            </select>
+          </div>
+
+          <div class="player-controls">
+            <button id="play-btn" class="btn btn-primary">▶ Play</button>
+            <button id="pause-btn" class="btn">⏸ Pause</button>
+            <button id="stop-btn" class="btn">⏹ Stop</button>
+          </div>
+
+          <div class="playback-info">
+            <div class="progress-container">
+              <label for="progress-bar">Progress:</label>
+              <input
+                type="range"
+                id="progress-bar"
+                min="0"
+                max="100"
+                value="0"
+              />
+              <span id="time-display">00:00 / 00:00</span>
+            </div>
+          </div>
+
+          <div class="playback-controls">
+            <label for="speed-control">Playback Speed:</label>
+            <select id="speed-control">
+              <option value="0.5">0.5x</option>
+              <option value="1" selected>1.0x</option>
+              <option value="1.5">1.5x</option>
+              <option value="2">2.0x</option>
+            </select>
+
+            <label for="volume-control">Volume:</label>
+            <input
+              type="range"
+              id="volume-control"
+              min="0"
+              max="100"
+              value="70"
+            />
+            <span id="volume-display">70%</span>
+          </div>
+
+          <div class="tape-info">
+            <p id="tape-description">
+              Select a showtape to view its description
+            </p>
+            <p class="bmc-info">
+              💡 This simulator uses Biphase Mark Code (BMC) encoding - a
+              digital data format where bit transitions create the control
+              signal. Listen carefully to hear the characteristic click patterns
+              of the BMC waveform!
+            </p>
+          </div>
+
+          <!-- Song Sync -->
+          <div class="song-sync-panel">
+            <h3>🎵 Song Sync</h3>
+            <p class="song-sync-info">
+              Load a WAV file to play it in perfect lock-step with the TDM
+              control signal — both are driven by the same audio clock.
+            </p>
+            <div class="song-sync-controls">
+              <label for="wav-input" class="btn btn-file">📂 Load WAV</label>
+              <input
+                type="file"
+                id="wav-input"
+                accept=".wav,.mp3,.ogg,.flac"
+                style="display: none"
+              />
+              <span id="song-status" class="song-status">No song loaded</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Custom Show Builder Section -->
+        <section class="control-panel custom-builder-panel">
+          <h2>🎼 Custom Show Builder</h2>
+          <p class="builder-info">
+            Upload any song — the simulator detects beats and generates a
+            choreographed showtape for your chosen band. The showtape is saved
+            in your browser and appears in the player above.
+          </p>
+
+          <div class="builder-form">
+            <div class="builder-row">
+              <label for="custom-wav-input" class="btn btn-file"
+                >📂 Choose Song</label
+              >
+              <input
+                type="file"
+                id="custom-wav-input"
+                accept=".wav,.mp3,.ogg,.flac"
+                style="display: none"
+              />
+              <span id="custom-wav-name" class="file-name-display"
+                >No file chosen</span
+              >
+            </div>
+
+            <div class="builder-row">
+              <label for="custom-show-title">Show Title:</label>
+              <input
+                type="text"
+                id="custom-show-title"
+                class="builder-input"
+                placeholder="My Custom Show"
+                maxlength="60"
+              />
+            </div>
+
+            <div class="builder-row">
+              <label for="custom-show-band">Band:</label>
+              <select id="custom-show-band" class="builder-select">
+                <option value="munch">🎸 Munch's Make Believe Band</option>
+                <option value="rock">🔥 Rock Afire Explosion</option>
+              </select>
+            </div>
+
+            <div class="builder-row builder-row-action">
+              <button id="generate-show-btn" class="btn btn-primary" disabled>
+                ⚙️ Generate Show
+              </button>
+              <span id="generate-status" class="generate-status"></span>
+            </div>
+          </div>
+
+          <div
+            class="saved-shows-header"
+            id="saved-shows-header"
+            style="display: none"
+          >
+            <h3>💾 Saved Custom Shows</h3>
+          </div>
+          <div id="custom-show-list" class="custom-show-list"></div>
+        </section>
+
+        <!-- Manual Signal Generator Section -->
+        <section class="control-panel">
+          <h2>Manual Signal Generator</h2>
+
+          <div class="channel-grid">
+            <div class="channel-control">
+              <label for="ch1-select">Channel 1:</label>
+              <select id="ch1-select" class="command-select">
+                <option value="none">Off</option>
+                <option value="move">Move</option>
+                <option value="rotate">Rotate</option>
+                <option value="pulse">Pulse</option>
+                <option value="sweep">Sweep</option>
+              </select>
+              <button class="btn btn-signal" onclick="playManualSignal(1)">
+                Send
+              </button>
+            </div>
+
+            <div class="channel-control">
+              <label for="ch2-select">Channel 2:</label>
+              <select id="ch2-select" class="command-select">
+                <option value="none">Off</option>
+                <option value="move">Move</option>
+                <option value="rotate">Rotate</option>
+                <option value="pulse">Pulse</option>
+                <option value="sweep">Sweep</option>
+              </select>
+              <button class="btn btn-signal" onclick="playManualSignal(2)">
+                Send
+              </button>
+            </div>
+
+            <div class="channel-control">
+              <label for="ch3-select">Channel 3:</label>
+              <select id="ch3-select" class="command-select">
+                <option value="none">Off</option>
+                <option value="move">Move</option>
+                <option value="rotate">Rotate</option>
+                <option value="pulse">Pulse</option>
+                <option value="sweep">Sweep</option>
+              </select>
+              <button class="btn btn-signal" onclick="playManualSignal(3)">
+                Send
+              </button>
+            </div>
+
+            <div class="channel-control">
+              <label for="ch4-select">Channel 4:</label>
+              <select id="ch4-select" class="command-select">
+                <option value="none">Off</option>
+                <option value="move">Move</option>
+                <option value="rotate">Rotate</option>
+                <option value="pulse">Pulse</option>
+                <option value="sweep">Sweep</option>
+              </select>
+              <button class="btn btn-signal" onclick="playManualSignal(4)">
+                Send
+              </button>
+            </div>
+          </div>
+
+          <div class="signal-length">
+            <label for="signal-duration">Signal Duration (ms):</label>
+            <input
+              type="number"
+              id="signal-duration"
+              min="100"
+              max="5000"
+              value="500"
+              step="100"
+            />
+          </div>
+        </section>
+
+        <!-- Status Display -->
+        <section class="control-panel">
+          <h2>System Log</h2>
+          <div id="signal-monitor" class="signal-monitor">
+            <p>Ready</p>
+          </div>
+        </section>
+
+        <!-- Character-Specific Monitors -->
+        <section class="control-panel">
+          <h2 id="band-title">
+            🎸 Munch's Make Believe Band - Signal Monitors
+          </h2>
+
+          <div id="munch-band" class="band-monitors">
+            <div class="character-monitor">
+              <div class="character-header">🎤 Chuck E. Cheese</div>
+              <div id="monitor-chuck" class="character-signal">Ready</div>
+            </div>
+
+            <div class="character-monitor">
+              <div class="character-header">🐕 Munch</div>
+              <div id="monitor-munch" class="character-signal">Ready</div>
+            </div>
+
+            <div class="character-monitor">
+              <div class="character-header">🐔 Helen Henny</div>
+              <div id="monitor-helen" class="character-signal">Ready</div>
+            </div>
+
+            <div class="character-monitor">
+              <div class="character-header">🐺 Jasper T. Jowls</div>
+              <div id="monitor-jasper" class="character-signal">Ready</div>
+            </div>
+
+            <div class="character-monitor">
+              <div class="character-header">🍕 Pasqually</div>
+              <div id="monitor-pasqually" class="character-signal">Ready</div>
+            </div>
+          </div>
+
+          <div id="rock-band" class="band-monitors" style="display: none">
+            <div class="character-monitor">
+              <div class="character-header">🎸 Billy Bob</div>
+              <div id="monitor-billy" class="character-signal">Ready</div>
+            </div>
+
+            <div class="character-monitor">
+              <div class="character-header">🎤 Mitzi</div>
+              <div id="monitor-mitzi" class="character-signal">Ready</div>
+            </div>
+
+            <div class="character-monitor">
+              <div class="character-header">🍔 Fatz</div>
+              <div id="monitor-fatz" class="character-signal">Ready</div>
+            </div>
+
+            <div class="character-monitor">
+              <div class="character-header">🏖️ Beach Bear</div>
+              <div id="monitor-beach" class="character-signal">Ready</div>
+            </div>
+
+            <div class="character-monitor">
+              <div class="character-header">🎺 Dook LaRue</div>
+              <div id="monitor-dook" class="character-signal">Ready</div>
+            </div>
+
+            <div class="character-monitor">
+              <div class="character-header">🥁 Rolfe</div>
+              <div id="monitor-rolfe" class="character-signal">Ready</div>
+            </div>
+
+            <div class="character-monitor">
+              <div class="character-header">🎸 Earl</div>
+              <div id="monitor-earl" class="character-signal">Ready</div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="cyberstar-signals.js"></script>
+    <script src="character-movements.js"></script>
+    <script src="showtapes.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
