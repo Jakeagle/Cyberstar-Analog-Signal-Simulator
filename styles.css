@@ -839,8 +839,39 @@ h1 {
   flex-wrap: wrap;
 }
 
-/* Show Import Panel */
-.show-import-panel {
+/* Show Editor Launch Panel */
+.show-editor-link-panel {
+  margin-top: 28px;
+  padding: 18px 20px;
+  background: rgba(100, 0, 255, 0.05);
+  border: 1px solid rgba(130, 60, 255, 0.2);
+  border-radius: 8px;
+}
+
+.show-editor-link-panel h3 {
+  font-size: 1em;
+  color: #a080ff;
+  margin: 0 0 10px;
+  letter-spacing: 1px;
+}
+
+.btn-editor-launch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 0.9em;
+  background: rgba(130, 60, 255, 0.12);
+  border-color: rgba(130, 60, 255, 0.4);
+  color: #c0a0ff;
+  text-decoration: none;
+}
+
+.btn-editor-launch:hover {
+  background: rgba(130, 60, 255, 0.25);
+  border-color: rgba(130, 60, 255, 0.7);
+  color: #d8c0ff;
+}
   margin-top: 28px;
   padding: 18px 20px;
   background: rgba(0, 212, 100, 0.04);
