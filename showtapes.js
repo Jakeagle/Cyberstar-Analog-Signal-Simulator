@@ -237,52 +237,102 @@ function getChannelForCharacter(character) {
   return (index % 4) + 1;
 }
 
-function buildMovementData(character, movement, channel) {
-  const hash = character.charCodeAt(0) + movement.charCodeAt(0);
-  const basePattern = hash % 64;
-  const movementByte = ((channel & 0x03) << 6) | (basePattern & 0x3f);
+/**
+ * Maps showtape builder movement names → CHARACTER_MOVEMENTS keys.
+ * Used when a builder uses a descriptive alias instead of the exact key.
+ */
+const MOVEMENT_ALIASES = {
+  // Guitar / instrument
+  guitar:              "guitar_raise",
+  guitar_up:           "guitar_raise",
+  guitar_down:         "guitar_raise",
+  guitar_strum:        "guitar_raise",
+  strum_motion:        "arm_right_swing",
+  arm_right_strum:     "arm_right_swing",
+  arm_left_strum:      "arm_left_swing",
+  arm_side_to_side:    "arm_right_swing",
+  keyboard_lean:       "body_lean",
+  // Arms / elbows / wrists
+  arm_left_up:         "arm_left_raise",
+  arm_right_up:        "arm_right_raise",
+  arm_left_down:       "arm_left_raise",   // signal OFF of raise
+  arm_right_down:      "arm_right_raise",  // signal OFF of raise
+  arm_down:            "arm_right_raise",
+  arm_up:              "arm_right_raise",
+  arm_swing:           "arm_right_swing",
+  arm_twist:           "arm_right_twist",
+  shoulder_left:       "arm_left_raise",
+  shoulder_right:      "arm_right_raise",
+  wrist_rotate:        "arm_right_twist",
+  wrist_flick:         "arm_right_twist",
+  // Drums / cymbals
+  snare_drum:          "hi_hat",
+  cymbal_right:        "hi_hat",
+  cymbal_reach:        "hi_hat",
+  // Blinks / eyes
+  blink:               "eyelid_left",
+  blink_left:          "eyelid_left",
+  blink_right:         "eyelid_right",
+  eye_center:          "eye_left",
+  // Head
+  head_turn:           "head_left",
+  head_nod:            "head_up",
+  head_tilt:           "head_up",
+  neck_sway:           "head_left",
+  // Hands / gestures
+  hand_wave:           "arm_right_raise",
+  hand_pose:           "arm_left_raise",
+  hand_gesture:        "arm_right_raise",
+  // Body / torso / hips
+  hip_sway:            "body_twist_left",
+  hip_swing:           "body_twist_right",
+  hip_gyrate:          "body_twist_left",
+  waist_sway:          "body_twist_left",
+  torso_sway:          "body_lean",
+  torso_twist:         "body_twist_left",
+  torso_move:          "body_lean",
+  torso_shift:         "body_twist_right",
+  torso_swivel:        "body_twist_left",
+  torso_lean:          "body_lean",
+  body_turn_left:      "body_twist_left",
+  body_turn_right:     "body_twist_right",
+  rhythm_bounce:       "body_lean",
+  // Feet / legs
+  foot_stomp:          "foot_tap",
+  foot_bounce:         "foot_tap",
+  foot_kick:           "leg_left_kick",
+  leg_kick:            "leg_left_kick",
+  // Ear (exact match guard)
+  eyebrow_raise:       "eyebrow",
+};
 
-  switch (movement.split("_")[0]) {
-    case "mouth":
-      return new Uint8Array([0xaa, 0x55, movementByte]);
-    case "blink":
-      return new Uint8Array([0x55, 0xaa, movementByte]);
-    case "eye":
-      return new Uint8Array([0x33, 0xcc, movementByte]);
-    case "head":
-    case "neck":
-      return new Uint8Array([0x0f, 0xf0, movementByte]);
-    case "arm":
-    case "shoulder":
-    case "hand":
-    case "elbow":
-      return new Uint8Array([0xff, 0x00, movementByte]);
-    case "torso":
-    case "body":
-    case "hip":
-    case "waist":
-      return new Uint8Array([0xc3, 0x3c, movementByte]);
-    case "foot":
-    case "leg":
-      return new Uint8Array([0x5a, 0xa5, movementByte]);
-    case "guitar":
-    case "strum":
-    case "keyboard":
-      return new Uint8Array([0x66, 0x99, movementByte]);
-    default:
-      return new Uint8Array([0x00, movementByte]);
-  }
+/**
+ * Resolve a movement name (possibly an alias) to a key that exists in
+ * CHARACTER_MOVEMENTS for the given character.  Returns null if no match.
+ */
+function resolveMovementKey(character, movement) {
+  const charEntry = CHARACTER_MOVEMENTS[character];
+  if (!charEntry) return null;
+  // Direct match
+  if (charEntry.movements[movement]) return movement;
+  // Alias lookup
+  const alias = MOVEMENT_ALIASES[movement];
+  if (alias && charEntry.movements[alias]) return alias;
+  return null;
 }
 
+/**
+ * Emit a 120 ms ON → OFF pulse for a character movement.
+ * Sequences are in the new bitwise format (character + movement + state)
+ * so they work with both the WAV exporter and the live playback loop.
+ */
 function addMovement(sequences, time, character, movement) {
   if (!character || !movement) return;
-  sequences.push({
-    time: Math.max(0, Math.round(time)),
-    character: character,
-    movement: movement,
-    movement_display: movement, // Simplification for v2.0
-    data: new Uint8Array([0x00]), // Dummy for v2.0
-  });
+  const movKey = resolveMovementKey(character, movement);
+  if (!movKey) return; // unrecognised movement — skip silently
+  const t = Math.max(0, Math.round(time));
+  sequences.push({ time: t,       character, movement: movKey, state: true  });
+  sequences.push({ time: t + 120, character, movement: movKey, state: false });
 }
 
 function buildBandSection(sequences, startMs, endMs, characters, bpm) {
