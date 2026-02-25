@@ -1071,10 +1071,12 @@ function exportShowJSON(id) {
   function msToTimestamp(ms) {
     const minutes = Math.floor(ms / 60000);
     const seconds = Math.floor((ms % 60000) / 1000);
-    const millis  = Math.round(ms % 1000);
+    const millis = Math.round(ms % 1000);
     return (
-      String(minutes).padStart(2, "0") + ":" +
-      String(seconds).padStart(2, "0") + "." +
+      String(minutes).padStart(2, "0") +
+      ":" +
+      String(seconds).padStart(2, "0") +
+      "." +
       String(millis).padStart(3, "0")
     );
   }
@@ -1089,7 +1091,7 @@ function exportShowJSON(id) {
     const charEntry = CHARACTER_MOVEMENTS[s.character];
     if (!charEntry || !charEntry.movements[s.movement]) continue;
     const moveInfo = charEntry.movements[s.movement];
-    const frame    = Math.round(s.time / MS_PER_FRAME);
+    const frame = Math.round(s.time / MS_PER_FRAME);
 
     if (!characterMap[s.character]) {
       characterMap[s.character] = { track: moveInfo.track, signals: [] };
@@ -1099,24 +1101,24 @@ function exportShowJSON(id) {
       frame,
       timestamp: msToTimestamp(s.time), // read-only reference — import uses frame
       movement: s.movement,
-      bit:   moveInfo.bit,   // BMC bit index on the track (0–95)
-      state: s.state,        // true = actuator ON, false = OFF
-      note:  s.note || "",   // freeform annotation, ignored at import
+      bit: moveInfo.bit, // BMC bit index on the track (0–95)
+      state: s.state, // true = actuator ON, false = OFF
+      note: s.note || "", // freeform annotation, ignored at import
     });
   }
 
   const totalFrames = Math.round(tape.duration / MS_PER_FRAME);
-  const charCount   = Object.keys(characterMap).length;
+  const charCount = Object.keys(characterMap).length;
 
   const exportObj = {
     cyberstar_show: true,
     version: "3.0",
-    title:       tape.title,
-    band:        tape.band,          // "rock" | "munch"
+    title: tape.title,
+    band: tape.band, // "rock" | "munch"
     duration_ms: tape.duration,
     duration_frames: totalFrames,
-    fps:         FPS,                // frames per second (always 50 for BMC)
-    bpm:         tape.bpm  || null,
+    fps: FPS, // frames per second (always 50 for BMC)
+    bpm: tape.bpm || null,
     description: tape.description || "",
     // ── How to edit this file ───────────────────────────────────────────────
     // Each character has a "signals" array. Every entry is one actuator
@@ -1141,9 +1143,9 @@ function exportShowJSON(id) {
 
   const json = JSON.stringify(exportObj, null, 2);
   const blob = new Blob([json], { type: "application/json" });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href     = url;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
   a.download = `${tape.title.replace(/[^a-z0-9_\-]/gi, "_")}.cybershow.json`;
   document.body.appendChild(a);
   a.click();
@@ -1161,8 +1163,8 @@ function exportShowJSON(id) {
  */
 function importShowJSON(file) {
   const statusEl = document.getElementById("import-show-status");
-  const btn      = document.getElementById("import-show-btn");
-  btn.disabled   = true;
+  const btn = document.getElementById("import-show-btn");
+  btn.disabled = true;
   statusEl.style.color = "";
   statusEl.textContent = "Reading file…";
 
@@ -1175,12 +1177,14 @@ function importShowJSON(file) {
       if (!obj.cyberstar_show)
         throw new Error("Not a valid .cybershow.json file.");
       if (!obj.band || !["rock", "munch"].includes(obj.band))
-        throw new Error('Missing or invalid "band" field. Must be "rock" or "munch".');
+        throw new Error(
+          'Missing or invalid "band" field. Must be "rock" or "munch".',
+        );
 
-      const FPS          = obj.fps || 50;
+      const FPS = obj.fps || 50;
       const MS_PER_FRAME = 1000 / FPS;
-      const sequences    = [];
-      let   skipped      = 0;
+      const sequences = [];
+      let skipped = 0;
 
       // ── v3.0: character-centric format ───────────────────────────────────
       if (obj.characters && typeof obj.characters === "object") {
@@ -1190,25 +1194,31 @@ function importShowJSON(file) {
             skipped += (charData.signals || []).length;
             continue;
           }
-          for (const sig of (charData.signals || [])) {
+          for (const sig of charData.signals || []) {
             if (
               typeof sig.frame !== "number" ||
               !sig.movement ||
               typeof sig.state !== "boolean"
-            ) { skipped++; continue; }
-            if (!charEntry.movements[sig.movement]) { skipped++; continue; }
+            ) {
+              skipped++;
+              continue;
+            }
+            if (!charEntry.movements[sig.movement]) {
+              skipped++;
+              continue;
+            }
             sequences.push({
-              time:      Math.max(0, Math.round(sig.frame * MS_PER_FRAME)),
+              time: Math.max(0, Math.round(sig.frame * MS_PER_FRAME)),
               character: charName,
-              movement:  sig.movement,
-              state:     sig.state,
-              note:      sig.note || "",
-              executed:  false,
+              movement: sig.movement,
+              state: sig.state,
+              note: sig.note || "",
+              executed: false,
             });
           }
         }
 
-      // ── v2.1 legacy: flat sequences array ────────────────────────────────
+        // ── v2.1 legacy: flat sequences array ────────────────────────────────
       } else if (Array.isArray(obj.sequences) && obj.sequences.length > 0) {
         for (const s of obj.sequences) {
           if (
@@ -1216,44 +1226,53 @@ function importShowJSON(file) {
             !s.character ||
             !s.movement ||
             typeof s.state !== "boolean"
-          ) { skipped++; continue; }
+          ) {
+            skipped++;
+            continue;
+          }
           const charEntry = CHARACTER_MOVEMENTS[s.character];
-          if (!charEntry || !charEntry.movements[s.movement]) { skipped++; continue; }
+          if (!charEntry || !charEntry.movements[s.movement]) {
+            skipped++;
+            continue;
+          }
           sequences.push({
-            time:      Math.max(0, Math.round(s.time)),
+            time: Math.max(0, Math.round(s.time)),
             character: s.character,
-            movement:  s.movement,
-            state:     s.state,
-            note:      s.note || "",
-            executed:  false,
+            movement: s.movement,
+            state: s.state,
+            note: s.note || "",
+            executed: false,
           });
         }
-
       } else {
         throw new Error('No "characters" or "sequences" data found in file.');
       }
 
       if (sequences.length === 0)
-        throw new Error("All cues were invalid or referenced unknown characters/movements.");
+        throw new Error(
+          "All cues were invalid or referenced unknown characters/movements.",
+        );
 
       sequences.sort((a, b) => a.time - b.time);
 
       // Duration: prefer file value, fall back to last-cue + 2 s tail
-      const lastCue  = sequences[sequences.length - 1].time;
+      const lastCue = sequences[sequences.length - 1].time;
       const duration =
-        (obj.duration_ms  && obj.duration_ms  > lastCue) ? obj.duration_ms  :
-        (obj.duration     && obj.duration     > lastCue) ? obj.duration     :
-        lastCue + 2000;
+        obj.duration_ms && obj.duration_ms > lastCue
+          ? obj.duration_ms
+          : obj.duration && obj.duration > lastCue
+            ? obj.duration
+            : lastCue + 2000;
 
-      const id   = `imported-${Date.now()}`;
+      const id = `imported-${Date.now()}`;
       const tape = {
         id,
-        title:       obj.title       || file.name.replace(/\.cybershow\.json$/i, ""),
+        title: obj.title || file.name.replace(/\.cybershow\.json$/i, ""),
         description: obj.description || `Imported from ${file.name}`,
-        band:        obj.band,
-        bpm:         obj.bpm  || null,
+        band: obj.band,
+        bpm: obj.bpm || null,
         duration,
-        bitrate:  4800,
+        bitrate: 4800,
         isCustom: true,
         sequences,
       };
@@ -1261,29 +1280,30 @@ function importShowJSON(file) {
       SHOWTAPES[id] = tape;
       saveCustomShowtape(tape);
 
-      const msg = skipped > 0
-        ? `✓ Imported "${tape.title}" — ${sequences.length} cues loaded, ${skipped} invalid cues skipped.`
-        : `✓ Imported "${tape.title}" — ${sequences.length} cues loaded.`;
+      const msg =
+        skipped > 0
+          ? `✓ Imported "${tape.title}" — ${sequences.length} cues loaded, ${skipped} invalid cues skipped.`
+          : `✓ Imported "${tape.title}" — ${sequences.length} cues loaded.`;
 
       statusEl.style.color = "#0f8";
-      statusEl.textContent  = msg;
+      statusEl.textContent = msg;
       updateSignalMonitor(msg);
 
       // Reset file input
       document.getElementById("import-show-input").value = "";
-      document.getElementById("import-show-name").textContent = "No file chosen";
+      document.getElementById("import-show-name").textContent =
+        "No file chosen";
       btn.disabled = true;
-
     } catch (err) {
       statusEl.style.color = "#f44";
-      statusEl.textContent  = `✗ ${err.message}`;
+      statusEl.textContent = `✗ ${err.message}`;
     } finally {
       btn.disabled = true;
     }
   };
   reader.onerror = () => {
     statusEl.style.color = "#f44";
-    statusEl.textContent  = "✗ Failed to read file.";
+    statusEl.textContent = "✗ Failed to read file.";
     btn.disabled = true;
   };
   reader.readAsText(file);
