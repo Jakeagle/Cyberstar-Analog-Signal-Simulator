@@ -1194,6 +1194,8 @@ async function buildCustomShowtape(file, title, band) {
       );
     }
 
+    const bpm = estimateBPM(beatTimes);
+
     statusEl.textContent = `Found ${beatTimes.length} beats (~${bpm} BPM). Detecting vocals…`;
     await new Promise((r) => setTimeout(r, 20));
 
