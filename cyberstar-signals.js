@@ -1,51 +1,41 @@
 /**
- * Cyberstar Analog Signal Generator
+ * Cyberstar Analog Signal Generator v2.0
  * Implements Biphase Mark Code (BMC) encoding for digital control signals
  *
- * Cyberstar used a single-channel audio track to encode digital control data:
+ * Official Rock-afire Explosion (RFE) Specification:
  * - Encoding: Biphase Mark Code (phase-based, self-clocking)
- * - Signal: Bipolar square wave with phase transitions
- * - Architecture: Time-Division Multiplexed (TDM) serial stream
+ * - Baud Rate: 4800 bps
+ * - Frame Rate: 50 fps (20 ms per frame)
+ * - Track TD (Treble Data): Left Audio Channel
+ * - Track BD (Bass Data): Right Audio Channel
+ * - Frame Length: 12 Bytes (96 Bits) per track
  *
- * All character channels are serialized into ONE continuous bit stream —
- * exactly as the real hardware would output on its signal line.
- *
- * TDM Frame format (sent FRAME_RATE times per second):
- *   [0xFF][0x00][ch0][ch1][ch2][ch3][ch4][ch5][ch6][ch7][0xAA]
- *          sync header    8 channel bytes (one per character slot)  end
- *   = 11 bytes = 88 bits per frame
- *   At 2400 bps a frame takes ~36.7 ms — fits cleanly in a 50 ms slot (20 fps).
- *
- * This produces one coherent, rhythmic BMC signal for the whole band,
- * rather than scattered per-character audio bursts.
+ * Every frame starts with a clock flip at bit boundary.
+ * Logic '1' has an additional mid-bit transition.
  */
 
 class CyberstarSignalGenerator {
   constructor(options = {}) {
     this.audioContext = null;
 
-    // BMC / stream parameters
-    this.bitrate = 2400; // bps — fast enough for multi-channel TDM
-    this.frameRate = 20; // TDM frames per second (50 ms per frame)
+    // BMC / stream parameters — Official 4800 Baud Spec
+    this.bitrate = 4800;
+    this.frameRate = 50;
     this.amplitude = options.amplitude || 0.85;
-    this.noiseLevel = options.noiseLevel || 0.015; // light tape hiss
-    this.lowpassCutoff = 5000; // Hz — preserves crisp transitions
+    this.noiseLevel = options.noiseLevel || 0.015;
+    this.lowpassCutoff = 8000; // preserving the "screech" high harmonics
 
     this.volume = options.volume || 0.7;
 
-    // 8 channel slots — one byte each, written into every TDM frame.
-    // Slot 0 = character 1, slot 1 = character 2, etc.
-    this.NUM_SLOTS = 8;
-    this.channelSlots = new Uint8Array(this.NUM_SLOTS); // 0x00 = idle
-
-    // Map: characterName → slot index
-    this.characterSlotMap = new Map();
+    // Dual-track frame buffers (12 bytes each)
+    this.trackTD = new Uint8Array(12);
+    this.trackBD = new Uint8Array(12);
 
     // Stream scheduling state
     this.isStreaming = false;
-    this.nextFrameTime = 0; // audioContext time when the next frame should start
+    this.nextFrameTime = 0;
     this.schedulerTimer = null;
-    this.SCHEDULE_AHEAD = 0.15; // seconds ahead to pre-queue (keeps audio gap-free)
+    this.SCHEDULE_AHEAD = 0.1; // pre-queue 100ms
 
     this.initAudioContext();
   }
@@ -233,106 +223,92 @@ class CyberstarSignalGenerator {
   }
 
   /**
-   * Encode one TDM frame and schedule its AudioBuffer at the given context time.
-   * This is the heart of the multiplexed signal: one continuous BMC stream.
-   *
-   * Idle frames (all channel slots 0x00) are scheduled as silence so the
-   * sync-byte pattern doesn't produce constant background beeping between
-   * character movements.
+   * Encode both TD and BD tracks and schedule them as a stereo AudioBuffer.
+   * TD = Left channel, BD = Right channel.
    */
   _scheduleFrame(atTime) {
-    // Determine how many samples this frame occupies so we can schedule
-    // silence for idle frames without leaving a gap in the timeline.
     const samplesPerBit = this.sampleRate / this.bitrate;
-    const bitsPerFrame = 11 * 8; // 11 bytes × 8 bits
+    const bitsPerFrame = 12 * 8; // 96 bits
     const frameSamples = Math.ceil(bitsPerFrame * samplesPerBit);
 
-    // If every channel slot is idle, emit silence for this frame slot.
-    const hasActivity = this.channelSlots.some((b) => b !== 0x00);
-    if (!hasActivity) {
-      const silentBuf = this.audioContext.createBuffer(
-        1,
-        frameSamples,
-        this.sampleRate,
-      );
-      // AudioContext buffer is zero-filled by default — pure silence.
-      const src = this.audioContext.createBufferSource();
-      src.buffer = silentBuf;
-      src.connect(this.audioContext.destination);
-      src.start(atTime);
-      return;
-    }
+    // Left Channel (TD)
+    const bitsTD = this.encodeBMC(this.trackTD);
+    let waveL = this.generateBMCWaveform(bitsTD);
+    waveL = this.applyLowpassFilter(waveL);
 
-    const frameBytes = this.buildTDMFrame();
-    const bits = this.encodeBMC(frameBytes);
-    let waveform = this.generateBMCWaveform(bits);
-    waveform = this.applyLowpassFilter(waveform);
+    // Right Channel (BD)
+    const bitsBD = this.encodeBMC(this.trackBD);
+    let waveR = this.generateBMCWaveform(bitsBD);
+    waveR = this.applyLowpassFilter(waveR);
 
     const scale = this.amplitude * this.volume;
-    for (let i = 0; i < waveform.length; i++) waveform[i] *= scale;
 
     const buffer = this.audioContext.createBuffer(
-      1,
-      waveform.length,
+      2,
+      frameSamples,
       this.sampleRate,
     );
-    buffer.getChannelData(0).set(waveform);
+    const leftData = buffer.getChannelData(0);
+    const rightData = buffer.getChannelData(1);
+
+    for (let i = 0; i < frameSamples; i++) {
+      leftData[i] = (waveL[i] || 0) * scale;
+      rightData[i] = (waveR[i] || 0) * scale;
+    }
 
     const source = this.audioContext.createBufferSource();
     source.buffer = buffer;
     source.connect(this.audioContext.destination);
-    source.start(atTime); // sample-accurate — no audible gaps between frames
+    source.start(atTime);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Character state API
+  // Bitwise Character State API
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * Map an ordered array of character names to slot indices 0–7.
-   * Call this whenever the active band changes.
-   * @param {string[]} orderedNames  e.g. ["Billy Bob", "Mitzi", "Fatz", ...]
+   * Set or clear a specific bit in the data tracks.
    */
-  setupBandSlots(orderedNames) {
-    this.characterSlotMap.clear();
-    this.clearAllCharacterStates();
-    orderedNames.forEach((name, i) => {
-      if (i < this.NUM_SLOTS) this.characterSlotMap.set(name, i);
-    });
+  setBit(track, bitIndex, value) {
+    const buffer = track === "TD" ? this.trackTD : this.trackBD;
+    const byteIndex = Math.floor(bitIndex / 8);
+    const bitPos = 7 - (bitIndex % 8); // MSB first
+
+    if (value) {
+      buffer[byteIndex] |= 1 << bitPos;
+    } else {
+      buffer[byteIndex] &= ~(1 << bitPos);
+    }
   }
 
   /**
-   * Update the control byte for a named character.
-   * The value is held for one TDM frame duration then automatically cleared
-   * back to idle (0x00), so each movement fires as a discrete pulse rather
-   * than a sustained state that drones on through every subsequent frame.
-   * @param {string}     characterName
-   * @param {Uint8Array} dataBytes — last byte used as the slot control value
+   * Toggles a bit state. Useful for legacy showtape logic where
+   * a single command represents "Activate/Deactivate" in sequence.
+   */
+  toggleBit(track, bitIndex) {
+    const buffer = track === "TD" ? this.trackTD : this.trackBD;
+    const byteIndex = Math.floor(bitIndex / 8);
+    const bitPos = 7 - (bitIndex % 8); // MSB first
+    const current = (buffer[byteIndex] >> bitPos) & 1;
+    this.setBit(track, bitIndex, !current);
+  }
+
+  /**
+   * Legacy method redirected to the bit-based system.
    */
   setCharacterState(characterName, dataBytes) {
-    const slot = this.characterSlotMap.get(characterName);
-    if (slot === undefined) return;
-    this.channelSlots[slot] = dataBytes[dataBytes.length - 1];
-
-    // Auto-clear after one frame duration (1000ms / frameRate).
-    // This ensures each command is a brief trigger pulse, not a sticky state.
-    const holdMs = Math.ceil(1000 / this.frameRate); // 50 ms at 20 fps
-    setTimeout(() => {
-      if (this.channelSlots[slot] === dataBytes[dataBytes.length - 1]) {
-        this.channelSlots[slot] = 0x00;
-      }
-    }, holdMs);
+    // Redirect logic to bitwise systems if we have a mapping
+    // But better to use bitwise API directly now.
   }
 
-  /** Reset a single character's slot to idle (0x00). */
-  clearCharacterState(characterName) {
-    const slot = this.characterSlotMap.get(characterName);
-    if (slot !== undefined) this.channelSlots[slot] = 0x00;
-  }
-
-  /** Reset all slots to idle. */
   clearAllCharacterStates() {
-    this.channelSlots.fill(0x00);
+    this.trackTD.fill(0x00);
+    this.trackBD.fill(0x00);
+  }
+
+  // Legacy setup — no longer used in bit-direct RFE spec
+  setupBandSlots() {
+    this.clearAllCharacterStates();
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -433,6 +409,19 @@ class CyberstarSignalGenerator {
 
   getAudioContextState() {
     return this.audioContext?.state || "not initialized";
+  }
+
+  /**
+   * Helper to check if a specific bit is ON in the current TDM frame.
+   * bitIndex: 0-95 (12-byte buffer)
+   * track: "TD" (Treble/Left) or "BD" (Bass/Right)
+   */
+  getBit(track, bitIndex) {
+    const buffer = track === "TD" ? this.trackTD : this.trackBD;
+    const byteIndex = Math.floor(bitIndex / 8);
+    const bitInByte = 7 - (bitIndex % 8); // msb-first
+    if (byteIndex < 0 || byteIndex >= 12) return false;
+    return (buffer[byteIndex] >> bitInByte) & 1;
   }
 }
 

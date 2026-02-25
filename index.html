@@ -7,8 +7,25 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="container">
-      <header>
+    <!-- Cyberstar Intro Overlay -->
+    <div id="intro-overlay" class="intro-overlay" style="cursor: pointer">
+      <video
+        id="intro-video"
+        class="intro-video"
+        src="Cyberstar Intro (HD).mp4"
+        playsinline
+      ></video>
+      <div id="intro-prompt" class="intro-prompt">
+        <div class="power-icon">⏻</div>
+        <p>POWER ON CYBERSTAR</p>
+      </div>
+      <div id="skip-intro" class="skip-intro" style="display: none">
+        Click to skip
+      </div>
+    </div>
+
+    <div class="container app-content" id="app-container">
+      <header class="reveal-stagger">
         <h1>🎬 Cyberstar BMC Signal Simulator</h1>
         <p class="subtitle">
           Biphase Mark Code Animatronic Control System Emulator
@@ -24,12 +41,15 @@
             <option value="munch">🎸 Munch's Make Believe Band</option>
             <option value="rock">🔥 The Rock - Afire Explosion</option>
           </select>
+          <button id="toggle-stage-btn" class="btn btn-primary btn-stage">
+            🎭 Show Stage View
+          </button>
         </div>
       </header>
 
       <main>
         <!-- Show Tape Player Section -->
-        <section class="control-panel">
+        <section class="control-panel reveal-stagger">
           <h2>Show Tape Player</h2>
 
           <div class="tape-selector">
@@ -126,7 +146,7 @@
         </section>
 
         <!-- Custom Show Builder Section -->
-        <section class="control-panel custom-builder-panel">
+        <section class="control-panel custom-builder-panel reveal-stagger">
           <h2>🎼 Custom Show Builder</h2>
           <p class="builder-info">
             Upload any song — the simulator detects beats and generates a
@@ -188,7 +208,7 @@
         </section>
 
         <!-- Manual Signal Generator Section -->
-        <section class="control-panel">
+        <section class="control-panel reveal-stagger">
           <h2>Manual Signal Generator</h2>
 
           <div class="channel-grid">
@@ -262,19 +282,19 @@
           </div>
         </section>
 
-        <!-- v2: TDM Frame Monitor — Live Bit Grid -->
-        <section class="control-panel">
-          <h2>📡 TDM Frame Monitor</h2>
+        <!-- v2: 4800 Baud TDM Frame Monitor — Dual Bit Grids -->
+        <section class="control-panel reveal-stagger">
+          <h2>📡 TDM Frame Monitor v2.0</h2>
           <p class="builder-info">
-            Live view of all 8 TDM channel slots. Each row is one character — 8
-            bits (MSB→LSB). LEDs flash cyan when a command is active in that
-            frame. Slot bytes appear as hex on the right.
+            Official 4800 Baud Spec: Dual 12-byte tracks (96 bits each).
+            <b>Track TD (Left)</b> = Character logic (Rolfe, Fats, Dook).
+            <b>Track BD (Right)</b> = Bass bits (Mitzi, Billy Bob, Beach Bear).
           </p>
-          <div id="led-grid" class="led-grid"></div>
+          <div id="led-grid" class="dual-grid-container"></div>
         </section>
 
         <!-- Status Display -->
-        <section class="control-panel">
+        <section class="control-panel reveal-stagger">
           <h2>System Log</h2>
           <div id="signal-monitor" class="signal-monitor">
             <p>Ready</p>
@@ -282,7 +302,7 @@
         </section>
 
         <!-- Character-Specific Monitors -->
-        <section class="control-panel">
+        <section class="control-panel reveal-stagger">
           <h2 id="band-title">
             🎸 Munch's Make Believe Band - Signal Monitors
           </h2>
@@ -352,6 +372,25 @@
           </div>
         </section>
       </main>
+    </div>
+
+    <!-- Stage View Modal -->
+    <div id="stage-modal" class="modal">
+      <div class="modal-content stage-modal-content">
+        <div class="modal-header">
+          <h2>🎭 Cyberstar Animatronic Stage</h2>
+          <button id="close-stage-btn" class="close-btn">&times;</button>
+        </div>
+        <div class="stage-info">
+          <p>
+            Real-time visualization of the Biphase Mark Code control bits acting
+            on the show floor machines.
+          </p>
+        </div>
+        <div id="stage-arena" class="stage-arena">
+          <!-- Characters dynamically rendered here -->
+        </div>
+      </div>
     </div>
 
     <script src="cyberstar-signals.js"></script>

@@ -74,6 +74,64 @@ const ledLastByte = new Uint8Array(8); // last non-zero byte seen per slot
 
 // Initialize the application
 document.addEventListener("DOMContentLoaded", function () {
+  const introOverlay = document.getElementById("intro-overlay");
+  const introVideo = document.getElementById("intro-video");
+  const introPrompt = document.getElementById("intro-prompt");
+  const skipIntro = document.getElementById("skip-intro");
+
+  function startAppTransition() {
+    if (introOverlay.classList.contains("intro-hidden")) return;
+
+    introOverlay.classList.add("intro-hidden");
+    document.body.classList.add("app-ready");
+
+    // Pause video to ensure audio doesn't keep playing
+    introVideo.pause();
+
+    // Trigger staggered reveal of app sections
+    const reveals = document.querySelectorAll(".reveal-stagger");
+    reveals.forEach((el, index) => {
+      setTimeout(
+        () => {
+          el.classList.add("reveal-visible");
+        },
+        150 + index * 120,
+      ); // 120ms staggered delay
+    });
+
+    // Cleanup after transition
+    setTimeout(() => {
+      introOverlay.style.display = "none";
+    }, 1000);
+  }
+
+  function startIntro() {
+    if (introVideo.paused) {
+      introVideo
+        .play()
+        .then(() => {
+          introPrompt.style.opacity = "0";
+          setTimeout(() => {
+            introPrompt.style.display = "none";
+            skipIntro.style.display = "block";
+          }, 300);
+          introVideo.classList.add("video-playing");
+        })
+        .catch((err) => {
+          console.log("Video play blocked:", err);
+        });
+    } else {
+      // If already playing, a click skips
+      startAppTransition();
+    }
+  }
+
+  // Auto-transition when video ends
+  introVideo.addEventListener("ended", startAppTransition);
+
+  // Initial interaction starts video (with audio), second interaction skips
+  introOverlay.addEventListener("click", startIntro);
+
   setupEventListeners();
   loadCustomShowtapes(); // populates SHOWTAPES before the dropdown is built
   updateShowtapeList();
@@ -97,102 +155,104 @@ document.addEventListener("DOMContentLoaded", function () {
  * for the currently active band.
  */
 function setupCurrentBandSlots() {
-  const chars = Object.values(BAND_CONFIG[currentBand].characters).map(
-    (c) => c.name,
-  );
-  signalGenerator.setupBandSlots(chars);
-  buildLEDGrid(); // refresh labels whenever band changes
+  // Clear the tracks before starting a new band's show
+  signalGenerator.clearAllCharacterStates();
+  buildLEDGrid(); // refresh labels with the new dual 96-bit tracks
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// v2 — TDM Frame Monitor: live 8×8 LED bit-grid
+// v2 — TDM Frame Monitor: Dual 96-bit (12-byte) LED bit-grids
+// Based on Official RFE Specification (TD and BD tracks)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Build (or rebuild) the LED grid DOM. Called once on init and again
- * whenever the active band changes so character labels stay correct.
+ * Build (or rebuild) the LED grid DOM. Now creates TWO grids for TD and BD.
  */
 function buildLEDGrid() {
-  const grid = document.getElementById("led-grid");
-  if (!grid) return;
-  grid.innerHTML = "";
+  const container = document.getElementById("led-grid");
+  if (!container) return;
+  container.innerHTML = "";
 
-  const bandCfg = BAND_CONFIG[currentBand];
-  const charNames = Object.values(bandCfg.characters).map((c) => c.name);
+  // Create TD Grid
+  const tdContainer = document.createElement("div");
+  tdContainer.className = "track-monitor";
+  tdContainer.innerHTML = "<h4>TRACK TD (Left / Treble)</h4>";
+  const tdGrid = document.createElement("div");
+  tdGrid.id = "led-grid-td";
+  tdGrid.className = "led-grid-v2";
+  tdContainer.appendChild(tdGrid);
+  container.appendChild(tdContainer);
 
-  for (let s = 0; s < 8; s++) {
-    const row = document.createElement("div");
-    row.className = "led-row";
+  // Create BD Grid
+  const bdContainer = document.createElement("div");
+  bdContainer.className = "track-monitor";
+  bdContainer.innerHTML = "<h4>TRACK BD (Right / Bass)</h4>";
+  const bdGrid = document.createElement("div");
+  bdGrid.id = "led-grid-bd";
+  bdGrid.className = "led-grid-v2";
+  bdContainer.appendChild(bdGrid);
+  container.appendChild(bdContainer);
 
-    // Character label
-    const label = document.createElement("span");
-    label.className = "led-label";
-    label.id = `led-label-${s}`;
-    label.textContent = charNames[s] || `Slot ${s}`;
-    row.appendChild(label);
-
-    // 8-bit LED cluster (MSB left)
-    const bits = document.createElement("div");
-    bits.className = "led-bits";
-    for (let b = 7; b >= 0; b--) {
-      const led = document.createElement("span");
-      led.className = "led";
-      led.id = `led-${s}-${b}`;
-      bits.appendChild(led);
+  const createTrack = (grid, prefix) => {
+    for (let s = 0; s < 12; s++) {
+      const row = document.createElement("div");
+      row.className = "led-row";
+      const label = document.createElement("span");
+      label.className = "led-label";
+      label.textContent = `Byte ${s}`;
+      row.appendChild(label);
+      const bits = document.createElement("div");
+      bits.className = "led-bits";
+      for (let b = 7; b >= 0; b--) {
+        const led = document.createElement("span");
+        led.className = "led";
+        led.id = `led-${prefix}-${s}-${b}`;
+        bits.appendChild(led);
+      }
+      row.appendChild(bits);
+      const hex = document.createElement("span");
+      hex.className = "led-hex";
+      hex.id = `led-hex-${prefix}-${s}`;
+      hex.textContent = "0x00";
+      row.appendChild(hex);
+      grid.appendChild(row);
     }
-    row.appendChild(bits);
+  };
 
-    // Hex readout
-    const hex = document.createElement("span");
-    hex.className = "led-hex";
-    hex.id = `led-hex-${s}`;
-    hex.textContent = "0x00";
-    row.appendChild(hex);
-
-    grid.appendChild(row);
-  }
+  createTrack(tdGrid, "td");
+  createTrack(bdGrid, "bd");
 }
 
 /**
- * Read the current TDM slot states from the signal generator, apply an
- * 90 ms visual latch so brief pulses remain visible, then update every
- * LED element and hex readout accordingly.
+ * Update the dual LED grids from the signal generator's 12-byte buffers.
  */
 function updateLEDGrid() {
-  const slots = signalGenerator.channelSlots;
-  const bandCfg = BAND_CONFIG[currentBand];
-  const charNames = Object.values(bandCfg.characters).map((c) => c.name);
-  const now = Date.now();
+  if (!signalGenerator) return;
 
-  for (let s = 0; s < 8; s++) {
-    const live = slots[s];
-    if (live !== 0x00) {
-      ledLastByte[s] = live;
-      ledLastActive[s] = now;
+  const update = (buf, prefix) => {
+    for (let s = 0; s < 12; s++) {
+      const val = buf[s];
+      const hexEl = document.getElementById(`led-hex-${prefix}-${s}`);
+      if (hexEl) {
+        hexEl.textContent = `0x${val.toString(16).toUpperCase().padStart(2, "0")}`;
+        hexEl.style.color = val ? "#00d4ff" : "#333";
+      }
+      for (let b = 7; b >= 0; b--) {
+        const led = document.getElementById(`led-${prefix}-${s}-${b}`);
+        if (led) {
+          const on = (val >> b) & 1;
+          led.className = on ? "led led-on" : "led";
+        }
+      }
     }
+  };
 
-    // Use the latched byte so very short pulses (50 ms) stay visible
-    const displayByte =
-      now - ledLastActive[s] < LED_LATCH_MS ? ledLastByte[s] : 0;
+  update(signalGenerator.trackTD, "td");
+  update(signalGenerator.trackBD, "bd");
 
-    // Update label (covers band-switch without full rebuild)
-    const labelEl = document.getElementById(`led-label-${s}`);
-    if (labelEl) labelEl.textContent = charNames[s] || `Slot ${s}`;
-
-    // Hex value
-    const hexEl = document.getElementById(`led-hex-${s}`);
-    if (hexEl) {
-      hexEl.textContent = `0x${displayByte.toString(16).toUpperCase().padStart(2, "0")}`;
-      hexEl.style.color = displayByte ? "#00d4ff" : "#333";
-    }
-
-    // Per-bit LEDs
-    for (let b = 7; b >= 0; b--) {
-      const led = document.getElementById(`led-${s}-${b}`);
-      if (!led) continue;
-      const on = (displayByte >> b) & 1;
-      led.className = on ? "led led-on" : "led";
-    }
+  // Update the stage if open
+  if (document.getElementById("stage-modal").style.display === "block") {
+    updateStageArena();
   }
 }
 
@@ -233,6 +293,14 @@ function setupEventListeners() {
   document
     .getElementById("export-wav-btn")
     .addEventListener("click", exportSignalWAV);
+
+  // Stage View Toggle
+  document
+    .getElementById("toggle-stage-btn")
+    .addEventListener("click", openStageView);
+  document
+    .getElementById("close-stage-btn")
+    .addEventListener("click", closeStageView);
 
   // Custom Show Builder
   const customWavInput = document.getElementById("custom-wav-input");
@@ -283,6 +351,11 @@ function onBandSelected(event) {
 
   // Reassign TDM slot map for the new band
   setupCurrentBandSlots();
+
+  // If stage is open, rebuild it
+  if (document.getElementById("stage-modal").style.display === "block") {
+    buildStageArena();
+  }
 
   updateSignalMonitor(`Switched to: ${bandConfig.title}`);
 }
@@ -463,40 +536,30 @@ function playbackLoop() {
   // Execute scheduled commands
   playbackSchedule.forEach((cmd) => {
     if (!cmd.executed && elapsed >= cmd.time) {
-      // Update this character's slot in the TDM frame — picked up on the next frame
-      if (cmd.character && cmd.character !== "All") {
-        signalGenerator.setCharacterState(cmd.character, cmd.data);
-      }
       cmd.executed = true;
 
-      // Show what's playing
-      const byteStr = Array.from(cmd.data)
-        .map((b) => "0x" + b.toString(16).toUpperCase())
-        .join(" ");
+      // Official Bitmap v2.0 Bit Addressing
+      if (cmd.character && cmd.movement) {
+        const charEntry = CHARACTER_MOVEMENTS[cmd.character];
+        if (charEntry) {
+          const m = charEntry.movements[cmd.movement];
+          if (m) {
+            signalGenerator.toggleBit(m.track, m.bit);
+          }
+        }
+      }
 
       // Display character movement information
       if (cmd.character && cmd.movement_display) {
         const displayText = `[${cmd.character}] ${cmd.movement_display}`;
 
-        // Route to appropriate character monitor if not "All"
-        if (cmd.character !== "All") {
-          const monitorId = getMonitorIdForCharacter(cmd.character);
-          if (monitorId) {
-            updateCharacterMonitorById(monitorId, displayText);
-          }
+        // Route to character monitor
+        const monitorId = getMonitorIdForCharacter(cmd.character);
+        if (monitorId) {
+          updateCharacterMonitorById(monitorId, displayText);
         }
 
         updateSignalMonitor(displayText);
-      } else {
-        // Fallback for raw bytes
-        if (cmd.data.length > 1) {
-          const secondByte = cmd.data[1];
-          const channel = (secondByte >> 6) & 0x03; // Upper 2 bits are channel
-          if (channel > 0 && channel <= 4) {
-            updateCharacterMonitor(channel, `Signal: ${byteStr}`);
-          }
-        }
-        updateSignalMonitor(`Bytes: ${byteStr}`);
       }
     }
   });
@@ -1606,3 +1669,92 @@ async function exportSignalWAV() {
     btn.disabled = false;
   }
 }
+
+/**
+ * Stage View Logic
+ */
+function openStageView() {
+  const modal = document.getElementById("stage-modal");
+  modal.classList.add("active");
+  buildStageArena();
+}
+
+function closeStageView() {
+  const modal = document.getElementById("stage-modal");
+  modal.classList.remove("active");
+}
+
+function buildStageArena() {
+  const arena = document.getElementById("stage-arena");
+  if (!arena) return;
+
+  arena.innerHTML = "";
+
+  const activeBand = typeof currentBand !== "undefined" ? currentBand : "rock";
+  const charList = BAND_CHARACTERS[activeBand] || [];
+
+  charList.forEach((charName, index) => {
+    const charDiv = document.createElement("div");
+    charDiv.className = "stage-character";
+    charDiv.dataset.name = charName;
+    charDiv.style.animationDelay = `${index * 0.1}s`;
+    charDiv.classList.add("reveal-enter");
+
+    const label = document.createElement("h3");
+    label.innerText = charName;
+    charDiv.appendChild(label);
+
+    const bodyBox = document.createElement("div");
+    bodyBox.className = "character-body-box";
+
+    const moveData = CHARACTER_MOVEMENTS[charName];
+    if (moveData && moveData.movements) {
+      Object.keys(moveData.movements).forEach((moveKey) => {
+        const part = document.createElement("div");
+        const partClass = "part-" + moveKey.replace(/_/g, "-");
+        part.className = `stage-part ${partClass}`;
+        part.dataset.move = moveKey;
+        // Text inside part if needed
+        part.innerText = moveKey.split("_").pop().substring(0, 3);
+        bodyBox.appendChild(part);
+      });
+    }
+
+    charDiv.appendChild(bodyBox);
+    arena.appendChild(charDiv);
+  });
+}
+
+function updateStageArena() {
+  const modal = document.getElementById("stage-modal");
+  if (!modal || !modal.classList.contains("active")) return;
+
+  const characters = document.querySelectorAll(".stage-character");
+  characters.forEach((charDiv) => {
+    const charName = charDiv.dataset.name;
+    const moveData = CHARACTER_MOVEMENTS[charName];
+
+    if (moveData && moveData.movements) {
+      Object.entries(moveData.movements).forEach(([moveKey, config]) => {
+        const isBitOn = signalGenerator.getBit(config.track, config.bit);
+        const part = charDiv.querySelector(
+          `.part-${moveKey.replace(/_/g, "-")}`,
+        );
+        if (part) {
+          if (isBitOn) {
+            part.classList.add("active");
+          } else {
+            part.classList.remove("active");
+          }
+        }
+      });
+    }
+  });
+}
+
+// Intercept the poll to update stage
+const originalUpdateLEDGrid = updateLEDGrid;
+updateLEDGrid = function () {
+  originalUpdateLEDGrid();
+  updateStageArena();
+};

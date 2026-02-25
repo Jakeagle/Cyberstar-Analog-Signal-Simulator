@@ -203,27 +203,26 @@ const MOVEMENT_PATTERNS = {
   ],
   Rolfe: [
     "mouth",
-    "ear_left_flick",
-    "ear_right_flick",
-    "blink_left",
-    "blink_right",
+    "eyelid_left",
+    "eyelid_right",
     "eye_left",
     "eye_right",
     "head_left",
     "head_right",
     "head_up",
+    "ear_left",
+    "ear_right",
     "arm_left_raise",
-    "arm_right_raise",
-    "elbow_left_bend",
-    "elbow_right_bend",
     "arm_left_twist",
+    "elbow_left",
+    "arm_right_raise",
     "arm_right_twist",
+    "elbow_right_twist",
     "body_twist_left",
     "body_twist_right",
     "body_lean",
-    "hand_pose",
   ],
-  Earl: ["head_tilt", "mouth", "eyebrow_raise", "eye_look"],
+  Earl: ["mouth", "head_tilt", "eyebrow"],
 };
 
 function getMovementDisplay(character, movement) {
@@ -277,13 +276,12 @@ function buildMovementData(character, movement, channel) {
 
 function addMovement(sequences, time, character, movement) {
   if (!character || !movement) return;
-  const channel = getChannelForCharacter(character);
   sequences.push({
     time: Math.max(0, Math.round(time)),
     character: character,
     movement: movement,
-    movement_display: getMovementDisplay(character, movement),
-    data: buildMovementData(character, movement, channel),
+    movement_display: movement, // Simplification for v2.0
+    data: new Uint8Array([0x00]), // Dummy for v2.0
   });
 }
 
@@ -352,40 +350,40 @@ function buildComeTogetherRFESongMapped() {
 
   function drums(from, to) {
     for (let t = from; t < to; t += BEAT) {
-      mv(t, "Dook LaRue", "arm_up");
-      mv(t + BEAT / 2, "Dook LaRue", "arm_down");
+      mv(t, "Dook LaRue", "arm_left_up");
+      mv(t + BEAT / 2, "Dook LaRue", "arm_left_down");
     }
     for (let t = from + BAR - BEAT / 2; t < to; t += BAR) {
-      mv(t, "Dook LaRue", "cymbal_reach");
+      mv(t, "Dook LaRue", "cymbal_right");
     }
     for (let t = from; t < to; t += BAR) {
-      mv(t + BEAT, "Dook LaRue", "foot_kick");
+      mv(t + BEAT, "Dook LaRue", "bass_drum");
     }
   }
 
   function bassKeys(from, to) {
     for (let t = from; t < to; t += BAR) {
-      mv(t, "Fatz", "keyboard_lean");
-      mv(t + BEAT, "Fatz", "foot_bounce");
-      mv(t + BEAT * 2, "Fatz", "torso_twist");
-      mv(t + BEAT * 3, "Fatz", "foot_bounce");
+      mv(t, "Fatz", "arm_left_down"); // keyboard lean
+      mv(t + BEAT, "Fatz", "arm_right_down"); // foot bounce replacement
+      mv(t + BEAT * 2, "Fatz", "body_twist_left");
+      mv(t + BEAT * 3, "Fatz", "arm_right_down");
     }
   }
 
   function riffBear(from, to) {
     // iconic three-note descending riff, roughly every two beats
     for (let t = from; t < to; t += BEAT * 2) {
-      mv(t, "Beach Bear", "guitar_strum");
-      mv(t + BEAT / 2, "Beach Bear", "torso_sway");
+      mv(t, "Beach Bear", "guitar");
+      mv(t + BEAT / 2, "Beach Bear", "body_twist_left");
     }
   }
 
   function rhythmGuitar(from, to) {
     for (let t = from; t < to; t += BEAT) {
-      mv(t, "Billy Bob", "arm_right_strum");
+      mv(t, "Billy Bob", "guitar");
     }
     for (let t = from; t < to; t += BAR * 2) {
-      mv(t + BEAT, "Billy Bob", "foot_tap");
+      mv(t + BEAT, "Billy Bob", "arm_left_down");
     }
   }
 
@@ -397,32 +395,35 @@ function buildComeTogetherRFESongMapped() {
     // We skip the jaw on the 3rd quarter of each bar — that's typically
     // a rest/breath point in "Come Together" phrasing.
     const SYLLABLE = Math.round(BEAT / 2); // ~357 ms per syllable slot
-    const JAW_HOLD = 80;                   // ms jaw stays open
+    const JAW_HOLD = 80; // ms jaw stays open
     let slotIdx = 0;
     for (let t = from; t < to; t += SYLLABLE) {
       // Skip the 3rd-quarter slot of every bar (breath / phrase gap)
       const posInBar = Math.round(t - from) % Math.round(BAR);
-      if (posInBar >= Math.round(BEAT * 2) && posInBar < Math.round(BEAT * 2.5)) {
+      if (
+        posInBar >= Math.round(BEAT * 2) &&
+        posInBar < Math.round(BEAT * 2.5)
+      ) {
         slotIdx++;
         continue;
       }
-      mv(t,            "Rolfe", "mouth"); // open
+      mv(t, "Rolfe", "mouth"); // open
       mv(t + JAW_HOLD, "Rolfe", "mouth"); // close
       slotIdx++;
     }
     // Head movements follow phrase rhythm (one turn per beat, not tied to jaw)
     for (let t = from; t < to; t += BAR) {
-      mv(t + BEAT,     "Rolfe", "head_left");
+      mv(t + BEAT, "Rolfe", "head_left");
       mv(t + BEAT * 3, "Rolfe", "head_right");
     }
   }
 
   function mitziDances(from, to) {
     for (let t = from; t < to; t += BAR) {
-      mv(t, "Mitzi", "hip_sway");
-      mv(t + BEAT, "Mitzi", "waist_sway");
-      mv(t + BEAT * 2, "Mitzi", "arm_swing");
-      mv(t + BEAT * 3, "Mitzi", "hand_wave");
+      mv(t, "Mitzi", "body_twist_left");
+      mv(t + BEAT, "Mitzi", "body_twist_right");
+      mv(t + BEAT * 2, "Mitzi", "arm_left_raise");
+      mv(t + BEAT * 3, "Mitzi", "arm_right_raise");
     }
   }
 
@@ -431,24 +432,24 @@ function buildComeTogetherRFESongMapped() {
       mv(t, "Rolfe", "arm_right_raise");
       mv(t + BEAT / 2, "Rolfe", "arm_left_raise");
       // "Come to-geth-er" — 4 syllables, open+close pairs
-      mv(t + BEAT,       "Rolfe", "mouth"); // "Come" open
-      mv(t + BEAT + 80,  "Rolfe", "mouth"); // "Come" close
+      mv(t + BEAT, "Rolfe", "mouth"); // "Come" open
+      mv(t + BEAT + 80, "Rolfe", "mouth"); // "Come" close
       mv(t + BEAT * 1.5, "Rolfe", "mouth"); // "to-" open
       mv(t + BEAT * 1.5 + 80, "Rolfe", "mouth"); // "to-" close
-      mv(t + BEAT * 2,   "Rolfe", "mouth"); // "-geth-" open
+      mv(t + BEAT * 2, "Rolfe", "mouth"); // "-geth-" open
       mv(t + BEAT * 2 + 80, "Rolfe", "mouth"); // "-geth-" close
-      mv(t + BEAT * 3,   "Rolfe", "mouth"); // "-er" open
+      mv(t + BEAT * 3, "Rolfe", "mouth"); // "-er" open
       mv(t + BEAT * 3 + 80, "Rolfe", "mouth"); // "-er" close
-      mv(t, "Mitzi", "arm_swing");
-      mv(t + BEAT / 2, "Mitzi", "waist_sway");
-      mv(t, "Billy Bob", "guitar_up");
+      mv(t, "Mitzi", "arm_left_raise");
+      mv(t + BEAT / 2, "Mitzi", "body_twist_left");
+      mv(t, "Billy Bob", "guitar");
       mv(t + BEAT, "Billy Bob", "arm_right_up");
-      mv(t, "Beach Bear", "arm_raise");
-      mv(t + BEAT, "Beach Bear", "guitar_strum");
+      mv(t, "Beach Bear", "arm_left_up");
+      mv(t + BEAT, "Beach Bear", "guitar");
       mv(t, "Fatz", "arm_right_raise");
       mv(t + BEAT, "Fatz", "arm_left_raise");
-      mv(t + BEAT * 3, "Dook LaRue", "cymbal_reach");
-      mv(t + BEAT * 2, "Earl", "eyebrow_raise");
+      mv(t + BEAT * 3, "Dook LaRue", "cymbal_right");
+      mv(t + BEAT * 2, "Earl", "eyebrow");
     }
     drums(from, to);
     bassKeys(from, to);
@@ -457,30 +458,30 @@ function buildComeTogetherRFESongMapped() {
 
   // ── INTRO  0 – 7143 ───────────────────────────────────────────────────────
   // The iconic four-bar guitar intro — Beach Bear awakens first, drums join bar 2
-  mv(0, "Beach Bear", "guitar_strum");
-  mv(357, "Beach Bear", "torso_sway");
-  mv(714, "Beach Bear", "guitar_strum");
-  mv(1071, "Beach Bear", "guitar_strum");
-  mv(1429, "Beach Bear", "guitar_strum");
-  mv(1786, "Dook LaRue", "arm_up");
-  mv(2143, "Beach Bear", "guitar_strum");
-  mv(2143, "Dook LaRue", "wrist_flick");
-  mv(2500, "Dook LaRue", "foot_kick");
-  mv(2857, "Beach Bear", "guitar_strum");
-  mv(2857, "Dook LaRue", "arm_up");
-  mv(3214, "Fatz", "keyboard_lean");
-  mv(3214, "Dook LaRue", "arm_down");
-  mv(3571, "Beach Bear", "guitar_strum");
+  mv(0, "Beach Bear", "guitar");
+  mv(357, "Beach Bear", "body_twist_left");
+  mv(714, "Beach Bear", "guitar");
+  mv(1071, "Beach Bear", "guitar");
+  mv(1429, "Beach Bear", "guitar");
+  mv(1786, "Dook LaRue", "arm_left_up");
+  mv(2143, "Beach Bear", "guitar");
+  mv(2143, "Dook LaRue", "snare_drum");
+  mv(2500, "Dook LaRue", "bass_drum");
+  mv(2857, "Beach Bear", "guitar");
+  mv(2857, "Dook LaRue", "arm_left_up");
+  mv(3214, "Fatz", "arm_left_down");
+  mv(3214, "Dook LaRue", "arm_left_down");
+  mv(3571, "Beach Bear", "guitar");
   mv(3571, "Billy Bob", "head_right");
-  mv(4286, "Dook LaRue", "arm_up");
-  mv(4286, "Billy Bob", "arm_right_strum");
-  mv(5000, "Dook LaRue", "cymbal_reach");
-  mv(5000, "Beach Bear", "guitar_strum");
-  mv(5714, "Dook LaRue", "arm_down");
+  mv(4286, "Dook LaRue", "arm_left_up");
+  mv(4286, "Billy Bob", "guitar");
+  mv(5000, "Dook LaRue", "cymbal_right");
+  mv(5000, "Beach Bear", "guitar");
+  mv(5714, "Dook LaRue", "arm_left_down");
   mv(5714, "Mitzi", "head_left");
-  mv(6429, "Earl", "eyebrow_raise"); // "Shoot me"
-  mv(6429, "Beach Bear", "guitar_strum");
-  mv(6429, "Dook LaRue", "arm_up");
+  mv(6429, "Earl", "eyebrow"); // "Shoot me"
+  mv(6429, "Beach Bear", "guitar");
+  mv(6429, "Dook LaRue", "arm_left_up");
 
   // ── VERSE 1  7143 – 41429 "Here come old flattop…" ───────────────────────
   const V1 = 7143;
@@ -497,13 +498,13 @@ function buildComeTogetherRFESongMapped() {
   mv(V1 + BAR * 6, "Earl", "head_tilt"); // "spinal cracker"
   mv(V1 + BAR * 8, "Earl", "eyebrow_raise"); // "got to be a joker"
   mv(V1 + BAR * 10, "Earl", "head_tilt");
-  mv(V1 + BAR * 12, "Earl", "eyebrow_raise");
+  mv(V1 + BAR * 12, "Earl", "eyebrow");
 
   // ── CHORUS 1  41429 – 51429 "Come together, right now…" ──────────────────
   const C1 = 41429;
   chorusAll(C1, 51429);
   mv(C1, "Rolfe", "body_lean");
-  mv(C1 + BAR * 2, "Rolfe", "hand_pose");
+  mv(C1 + BAR * 2, "Rolfe", "elbow_right_twist");
 
   // ── VERSE 2  51429 – 86786 ────────────────────────────────────────────────
   const V2 = 51429;
@@ -516,12 +517,12 @@ function buildComeTogetherRFESongMapped() {
 
   mv(V2, "Rolfe", "body_twist_left");
   mv(V2 + BAR, "Rolfe", "body_twist_right");
-  mv(V2 + BAR * 2, "Earl", "eyebrow_raise"); // "Hold you in his armchair"
+  mv(V2 + BAR * 2, "Earl", "eyebrow"); // "Hold you in his armchair"
   mv(V2 + BAR * 4, "Earl", "head_tilt"); // "mudflat"
-  mv(V2 + BAR * 6, "Earl", "eyebrow_raise"); // "bag production"
+  mv(V2 + BAR * 6, "Earl", "eyebrow"); // "bag production"
   mv(V2 + BAR * 8, "Earl", "head_tilt");
-  mv(V2 + BAR * 10, "Earl", "eyebrow_raise");
-  mv(V2 + BAR * 12, "Earl", "eye_look");
+  mv(V2 + BAR * 10, "Earl", "eyebrow");
+  mv(V2 + BAR * 12, "Earl", "mouth");
 
   // ── CHORUS 2  86786 – 97143 ───────────────────────────────────────────────
   const C2 = 86786;
@@ -538,15 +539,15 @@ function buildComeTogetherRFESongMapped() {
   mitziDances(V3, 131429);
 
   // Earl especially bewildered by the surreal lyrics
-  mv(V3, "Earl", "eyebrow_raise");
+  mv(V3, "Earl", "eyebrow");
   mv(V3 + BAR, "Earl", "head_tilt"); // "walrus gumboot"
-  mv(V3 + BAR * 2, "Earl", "eyebrow_raise"); // "Ono sideboard"
+  mv(V3 + BAR * 2, "Earl", "eyebrow"); // "Ono sideboard"
   mv(V3 + BAR * 3, "Earl", "head_tilt");
-  mv(V3 + BAR * 4, "Earl", "eyebrow_raise");
+  mv(V3 + BAR * 4, "Earl", "eyebrow");
   mv(V3 + BAR * 5, "Earl", "head_tilt");
-  mv(V3 + BAR * 6, "Earl", "eyebrow_raise"); // "muddy water"
+  mv(V3 + BAR * 6, "Earl", "eyebrow"); // "muddy water"
   mv(V3 + BAR * 8, "Earl", "head_tilt");
-  mv(V3 + BAR * 10, "Earl", "eyebrow_raise");
+  mv(V3 + BAR * 10, "Earl", "eyebrow");
   mv(V3 + BAR * 12, "Earl", "head_tilt");
 
   // ── CHORUS 3  131429 – 141786 ─────────────────────────────────────────────
@@ -557,8 +558,8 @@ function buildComeTogetherRFESongMapped() {
   const BRK = 141786;
   // Beach Bear gets the spotlight — plays on every beat
   for (let t = BRK; t < 173929; t += BEAT) {
-    mv(t, "Beach Bear", "guitar_strum");
-    mv(t + BEAT / 3, "Beach Bear", "torso_sway");
+    mv(t, "Beach Bear", "guitar");
+    mv(t + BEAT / 3, "Beach Bear", "body_twist_left");
   }
   drums(BRK, 173929);
   bassKeys(BRK, 173929);
@@ -566,14 +567,14 @@ function buildComeTogetherRFESongMapped() {
   // Others groove and watch
   for (let t = BRK; t < 173929; t += BAR) {
     mv(t, "Billy Bob", "head_right"); // turn to watch Beach Bear
-    mv(t + BEAT, "Billy Bob", "foot_tap");
-    mv(t, "Mitzi", "hip_sway");
-    mv(t + BEAT, "Mitzi", "waist_sway");
-    mv(t + BEAT * 2, "Mitzi", "hand_wave");
+    mv(t + BEAT, "Billy Bob", "arm_left_down");
+    mv(t, "Mitzi", "body_twist_left");
+    mv(t + BEAT, "Mitzi", "body_twist_right");
+    mv(t + BEAT * 2, "Mitzi", "arm_right_raise");
     mv(t, "Rolfe", "head_right");
     mv(t + BAR / 2, "Rolfe", "head_left");
-    mv(t, "Earl", "eyebrow_raise"); // impressed
-    mv(t + BAR / 2, "Fatz", "torso_twist");
+    mv(t, "Earl", "eyebrow"); // impressed
+    mv(t + BAR / 2, "Fatz", "body_twist_left");
   }
 
   // ── VERSE 4  173929 – 207143 "He roller-coaster…" ────────────────────────
@@ -585,13 +586,13 @@ function buildComeTogetherRFESongMapped() {
   riffBear(V4, 207143);
   mitziDances(V4, 207143);
 
-  mv(V4 + BAR * 2, "Earl", "eyebrow_raise"); // "He roller-coaster"
+  mv(V4 + BAR * 2, "Earl", "eyebrow"); // "He roller-coaster"
   mv(V4 + BAR * 4, "Earl", "head_tilt");
-  mv(V4 + BAR * 5, "Earl", "eyebrow_raise"); // "He got early warning"
+  mv(V4 + BAR * 5, "Earl", "eyebrow"); // "He got early warning"
   mv(V4 + BAR * 6, "Earl", "head_tilt");
-  mv(V4 + BAR * 7, "Earl", "eyebrow_raise");
+  mv(V4 + BAR * 7, "Earl", "eyebrow");
   mv(V4 + BAR * 8, "Earl", "head_tilt");
-  mv(V4 + BAR * 9, "Earl", "eyebrow_raise");
+  mv(V4 + BAR * 9, "Earl", "eyebrow");
   mv(V4 + BAR * 10, "Earl", "head_tilt");
 
   // ── CHORUS 4  207143 – 218571 (grand finale) ──────────────────────────────
@@ -600,28 +601,28 @@ function buildComeTogetherRFESongMapped() {
     mv(t, "Rolfe", "arm_right_raise");
     mv(t + BEAT / 2, "Rolfe", "arm_left_raise");
     // "Come together" — two syllables per bar, open+close each
-    mv(t + BEAT,      "Rolfe", "mouth");        // "Come" open
-    mv(t + BEAT + 80, "Rolfe", "mouth");        // "Come" close
-    mv(t + BEAT * 2,  "Rolfe", "mouth");        // "to-" open
-    mv(t + BEAT * 2 + 80, "Rolfe", "mouth");   // "to-" close
-    mv(t + BEAT * 2 + 200, "Rolfe", "mouth");  // "-geth-" open
-    mv(t + BEAT * 2 + 280, "Rolfe", "mouth");  // "-geth-" close
-    mv(t + BEAT * 3,  "Rolfe", "mouth");        // "-er" open
-    mv(t + BEAT * 3 + 80, "Rolfe", "mouth");   // "-er" close
+    mv(t + BEAT, "Rolfe", "mouth"); // "Come" open
+    mv(t + BEAT + 80, "Rolfe", "mouth"); // "Come" close
+    mv(t + BEAT * 2, "Rolfe", "mouth"); // "to-" open
+    mv(t + BEAT * 2 + 80, "Rolfe", "mouth"); // "to-" close
+    mv(t + BEAT * 2 + 200, "Rolfe", "mouth"); // "-geth-" open
+    mv(t + BEAT * 2 + 280, "Rolfe", "mouth"); // "-geth-" close
+    mv(t + BEAT * 3, "Rolfe", "mouth"); // "-er" open
+    mv(t + BEAT * 3 + 80, "Rolfe", "mouth"); // "-er" close
     mv(t + BEAT * 2, "Rolfe", "body_lean");
-    mv(t, "Mitzi", "arm_swing");
-    mv(t + BEAT * 2, "Mitzi", "waist_sway");
-    mv(t, "Billy Bob", "guitar_up");
+    mv(t, "Mitzi", "arm_left_raise");
+    mv(t + BEAT * 2, "Mitzi", "body_twist_right");
+    mv(t, "Billy Bob", "guitar");
     mv(t + BEAT, "Billy Bob", "arm_right_up");
     mv(t + BEAT * 3, "Billy Bob", "arm_right_down");
-    mv(t, "Beach Bear", "arm_raise");
-    mv(t + BEAT, "Beach Bear", "guitar_strum");
+    mv(t, "Beach Bear", "arm_left_up");
+    mv(t + BEAT, "Beach Bear", "guitar");
     mv(t, "Fatz", "arm_right_raise");
     mv(t + BEAT, "Fatz", "arm_left_raise");
-    mv(t + BEAT * 2, "Fatz", "torso_twist");
-    mv(t, "Dook LaRue", "arm_up");
-    mv(t + BEAT * 3, "Dook LaRue", "cymbal_reach");
-    mv(t + BEAT * 2, "Earl", "eyebrow_raise");
+    mv(t + BEAT * 2, "Fatz", "body_twist_left");
+    mv(t, "Dook LaRue", "arm_left_up");
+    mv(t + BEAT * 3, "Dook LaRue", "cymbal_right");
+    mv(t + BEAT * 2, "Earl", "eyebrow");
   }
   drums(C4, 218571);
   bassKeys(C4, 218571);
@@ -638,13 +639,13 @@ function buildComeTogetherRFESongMapped() {
   for (let t = OUTRO; t < 248000; t += BAR * 2) {
     mv(t, "Rolfe", "arm_right_raise");
     mv(t + BAR, "Rolfe", "arm_left_raise");
-    mv(t + BEAT, "Earl", "eyebrow_raise");
-    mv(t, "Beach Bear", "guitar_strum");
-    mv(t + BEAT, "Beach Bear", "torso_sway");
-    mv(t, "Mitzi", "arm_swing");
-    mv(t + BEAT, "Mitzi", "hip_sway");
+    mv(t + BEAT, "Earl", "eyebrow");
+    mv(t, "Beach Bear", "guitar");
+    mv(t + BEAT, "Beach Bear", "body_twist_left");
+    mv(t, "Mitzi", "arm_left_raise");
+    mv(t + BEAT, "Mitzi", "body_twist_left");
     mv(t, "Fatz", "arm_right_raise");
-    mv(t + BAR / 2, "Fatz", "keyboard_lean");
+    mv(t + BAR / 2, "Fatz", "arm_left_down");
   }
 
   // Final bow — wind down 252000 – 259000
