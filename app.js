@@ -852,13 +852,118 @@ function selectAndPlayCustomShow(id) {
 // ─── Beat Detection ───────────────────────────────────────────────────────────────────
 
 /**
- * Energy-comparative onset detector.
- * Mixes to mono → computes short-time RMS energy per frame → uses a
- * prefix-sum rolling average for O(1) local-energy queries → marks beats
- * where frame energy significantly exceeds its local average.
+ * Vocal-band onset detector.
  *
- * @param   {AudioBuffer} audioBuffer  Decoded audio from Web Audio API
- * @returns {number[]}                 Beat onset times in milliseconds
+ * Strategy: separate the audio into two frequency bands using a simple
+ * one-pole IIR filter pair, then run the same energy-comparative onset
+ * detector on the HIGH band only (approx 800 Hz–8 kHz) — the range where
+ * consonants, vowel formants, and voice attack transients live.  The LOW
+ * band (kick, bass) is subtracted to avoid beat-hits masking vocal onsets.
+ *
+ * Returns onset times in ms.  These become jaw-open cues for the frontman.
+ *
+ * @param   {AudioBuffer} audioBuffer
+ * @param   {number}      bpm   used to set the minimum gap (≤ half a beat)
+ * @returns {number[]}          Vocal onset times in ms
+ */
+function analyzeVocalOnsets(audioBuffer, bpm) {
+  const sr = audioBuffer.sampleRate;
+  const numCh = audioBuffer.numberOfChannels;
+  const len = audioBuffer.length;
+
+  // Mix to mono
+  const mono = new Float32Array(len);
+  for (let ch = 0; ch < numCh; ch++) {
+    const d = audioBuffer.getChannelData(ch);
+    for (let i = 0; i < len; i++) mono[i] += d[i] / numCh;
+  }
+
+  // ── One-pole IIR high-pass (≈800 Hz) ──────────────────────────────────
+  // y[n] = α * (y[n-1] + x[n] - x[n-1])  where α = RC/(RC+dt)
+  const RC_HP = 1 / (2 * Math.PI * 800);
+  const dt = 1 / sr;
+  const alphaHP = RC_HP / (RC_HP + dt);
+  const hi = new Float32Array(len);
+  hi[0] = mono[0];
+  for (let i = 1; i < len; i++)
+    hi[i] = alphaHP * (hi[i - 1] + mono[i] - mono[i - 1]);
+
+  // ── One-pole IIR low-pass (≈200 Hz) — the kick/bass band ──────────────
+  const RC_LP = 1 / (2 * Math.PI * 200);
+  const alphaLP = dt / (RC_LP + dt);
+  const lo = new Float32Array(len);
+  lo[0] = mono[0];
+  for (let i = 1; i < len; i++)
+    lo[i] = lo[i - 1] + alphaLP * (mono[i] - lo[i - 1]);
+
+  // ── Short-time energy per frame (~10.7 ms) ─────────────────────────────
+  const FRAME = 512;
+  const nFrames = Math.floor(len / FRAME);
+  const hiEnergy = new Float32Array(nFrames);
+  const loEnergy = new Float32Array(nFrames);
+  for (let f = 0; f < nFrames; f++) {
+    let sh = 0,
+      sl = 0;
+    const off = f * FRAME;
+    for (let i = 0; i < FRAME; i++) {
+      sh += hi[off + i] ** 2;
+      sl += lo[off + i] ** 2;
+    }
+    hiEnergy[f] = sh / FRAME;
+    loEnergy[f] = sl / FRAME;
+  }
+
+  // ── Prefix sums for O(1) rolling average ──────────────────────────────
+  const cumHi = new Float64Array(nFrames + 1);
+  for (let f = 0; f < nFrames; f++) cumHi[f + 1] = cumHi[f] + hiEnergy[f];
+
+  // Rolling window: ±120 ms each side
+  const HALF = Math.round((0.12 * sr) / FRAME);
+  // Minimum gap: half a beat (so we can catch every syllable)
+  const beatMs = bpm > 0 ? 60000 / bpm : 500;
+  const MIN_GAP = Math.max(
+    Math.round((0.08 * sr) / FRAME), // never less than 80 ms
+    Math.round((((beatMs * 0.45) / 1000) * sr) / FRAME),
+  );
+  // Vocal onsets need to exceed their local background by this factor.
+  // Lower than the beat detector (1.5) — vocals are softer than transients.
+  const THRESHOLD = 1.25;
+  // How much louder lo must be vs hi for us to consider this a bass hit
+  // and suppress it as a vocal onset
+  const BASS_SUPPRESS = 3.0;
+
+  const onsets = [];
+  let lastOnset = -MIN_GAP;
+
+  for (let f = 1; f < nFrames - 1; f++) {
+    if (f - lastOnset < MIN_GAP) continue;
+
+    // Skip frames dominated by bass/kick
+    if (loEnergy[f] > hiEnergy[f] * BASS_SUPPRESS) continue;
+
+    const lo2 = Math.max(0, f - HALF);
+    const hi2 = Math.min(nFrames, f + HALF);
+    const localAvg = (cumHi[hi2] - cumHi[lo2]) / (hi2 - lo2);
+
+    if (
+      hiEnergy[f] > THRESHOLD * localAvg &&
+      hiEnergy[f] >= hiEnergy[f - 1] &&
+      hiEnergy[f] >= hiEnergy[f + 1]
+    ) {
+      onsets.push(Math.round((f * FRAME * 1000) / sr));
+      lastOnset = f;
+    }
+  }
+  return onsets;
+}
+
+/**
+ * Energy-comparative onset detector.
+ * Mixes to mono → computes short-time RMS energy per frame →
+ * marks beats where frame energy significantly exceeds its local average.
+ *
+ * @param   {AudioBuffer} audioBuffer
+ * @returns {number[]}    Beat onset times in milliseconds
  */
 function analyzeBeats(audioBuffer) {
   const sr = audioBuffer.sampleRate;
@@ -929,38 +1034,54 @@ function estimateBPM(beatTimes) {
 }
 
 /**
- * Generate character movement cues aligned to detected beat times.
+ * Generate character movement cues aligned to detected beat and vocal onsets.
  *
- * Rhythm assignment rules:
- *   Every beat     — rotate through all band characters, each gets a movement
- *   Every 2nd beat — add a half-beat accent (+60 ms) for the next character
- *   Every 4th beat — frontman (vocalist/lead) gets an extra accent (+20 ms)
- *   Every 8th beat — percussionist gets a phrase-start accent
+ * Beat-assignment rules (body movements):
+ *   Every beat     — rotate through non-frontman characters
+ *   Every 2nd beat — half-beat accent for the next character
+ *   Every 4th beat — frontman body accent (not mouth — mouth is separate)
+ *   Every 8th beat — percussionist phrase accent
+ *
+ * Jaw-assignment rules (mouth movements — frontman only):
+ *   One mouth-OPEN  cue at each detected vocal onset
+ *   One mouth-CLOSE cue ~80 ms later (simulates jaw returning)
+ *   Cues are deduplicated and filtered so they don't collide with
+ *   an existing mouth cue within 60 ms.
  */
-function generateCustomSequences(beatTimes, band) {
+function generateCustomSequences(beatTimes, band, vocalOnsets = []) {
   const characters = BAND_CHARACTERS[band] || [];
   if (characters.length === 0) return [];
 
   const frontman = band === "rock" ? "Rolfe" : "Chuck E. Cheese";
   const drummer = band === "rock" ? "Dook LaRue" : "Pasqually";
+  // All characters except the frontman for body-movement rotation
+  const backingChars = characters.filter((c) => c !== frontman);
+
   const sequences = [];
 
+  // ── Body movements on beat grid ─────────────────────────────────────────
   beatTimes.forEach((beatMs, i) => {
-    const charIdx = i % characters.length;
-    const char = characters[charIdx];
+    const charIdx = i % backingChars.length;
+    const char = backingChars[charIdx] || characters[i % characters.length];
     const pattern = MOVEMENT_PATTERNS[char];
     if (!pattern || pattern.length === 0) return;
 
-    // Primary movement on the beat
-    addMovement(sequences, beatMs, char, pattern[i % pattern.length]);
+    // Primary movement on the beat — but never mouth (jaw is vocal-driven)
+    const nonMouthPattern = pattern.filter((m) => m !== "mouth");
+    const move =
+      nonMouthPattern[i % nonMouthPattern.length] ||
+      pattern[i % pattern.length];
+    if (move !== "mouth") addMovement(sequences, beatMs, char, move);
 
-    // Half-beat accent (only if gap to next beat is wide enough)
+    // Half-beat accent
     if (i % 2 === 1) {
       const nextBeat = beatTimes[i + 1];
       if (!nextBeat || nextBeat - beatMs > 200) {
-        const aChar = characters[(charIdx + 1) % characters.length];
-        const aPat = MOVEMENT_PATTERNS[aChar];
-        if (aPat)
+        const aChar = backingChars[(charIdx + 1) % backingChars.length];
+        const aPat = (MOVEMENT_PATTERNS[aChar] || []).filter(
+          (m) => m !== "mouth",
+        );
+        if (aPat.length)
           addMovement(
             sequences,
             beatMs + 60,
@@ -970,28 +1091,71 @@ function generateCustomSequences(beatTimes, band) {
       }
     }
 
-    // Every 4th beat: frontman accent
+    // Every 4th beat: frontman body accent (head / arm / body — not mouth)
     if (i % 4 === 0 && characters.includes(frontman)) {
-      const fp = MOVEMENT_PATTERNS[frontman];
-      addMovement(
-        sequences,
-        beatMs + 20,
-        frontman,
-        fp[Math.floor(i / 4) % fp.length],
+      const fp = (MOVEMENT_PATTERNS[frontman] || []).filter(
+        (m) => m !== "mouth",
       );
+      if (fp.length)
+        addMovement(
+          sequences,
+          beatMs + 20,
+          frontman,
+          fp[Math.floor(i / 4) % fp.length],
+        );
     }
 
     // Every 8th beat: percussionist phrase accent
     if (i % 8 === 0 && characters.includes(drummer)) {
-      const dp = MOVEMENT_PATTERNS[drummer];
-      addMovement(
-        sequences,
-        beatMs,
-        drummer,
-        dp[Math.floor(i / 8) % dp.length],
-      );
+      const dp = MOVEMENT_PATTERNS[drummer] || [];
+      if (dp.length)
+        addMovement(
+          sequences,
+          beatMs,
+          drummer,
+          dp[Math.floor(i / 8) % dp.length],
+        );
     }
   });
+
+  // ── Jaw (mouth) cues driven by vocal onsets ─────────────────────────────
+  // Each onset → open jaw; 80 ms later → close (if within song duration)
+  const JAW_CLOSE_DELAY = 80; // ms — short syllable close
+  const JAW_MIN_GAP = 60; // ms — don't stack two opens within this window
+  const songEnd = beatTimes.length
+    ? beatTimes[beatTimes.length - 1] + 2000
+    : Infinity;
+
+  // Build a quick lookup set of already-scheduled mouth times
+  const mouthTimes = new Set();
+
+  const addJaw = (t) => {
+    // Skip if too close to a previous mouth cue
+    for (const mt of mouthTimes) if (Math.abs(mt - t) < JAW_MIN_GAP) return;
+    addMovement(sequences, t, frontman, "mouth");
+    mouthTimes.add(t);
+  };
+
+  if (vocalOnsets.length > 0) {
+    vocalOnsets.forEach((onsetMs) => {
+      if (onsetMs > songEnd) return;
+      addJaw(onsetMs); // open
+      addJaw(Math.round(onsetMs + JAW_CLOSE_DELAY)); // close
+    });
+  } else {
+    // Fallback when no vocal onsets detected: fire mouth every half-beat
+    // for the frontman (same as old behaviour, but filtered to frontman only)
+    if (beatTimes.length >= 2) {
+      const avgBeat =
+        (beatTimes[beatTimes.length - 1] - beatTimes[0]) /
+        (beatTimes.length - 1);
+      const halfBeat = avgBeat / 2;
+      for (let t = beatTimes[0]; t <= songEnd; t += halfBeat) {
+        addJaw(Math.round(t));
+        addJaw(Math.round(t + JAW_CLOSE_DELAY));
+      }
+    }
+  }
 
   sequences.sort((a, b) => a.time - b.time);
   return sequences;
@@ -1030,11 +1194,15 @@ async function buildCustomShowtape(file, title, band) {
       );
     }
 
-    const bpm = estimateBPM(beatTimes);
-    statusEl.textContent = `Found ${beatTimes.length} beats (~${bpm} BPM). Building choreography…`;
+    statusEl.textContent = `Found ${beatTimes.length} beats (~${bpm} BPM). Detecting vocals…`;
     await new Promise((r) => setTimeout(r, 20));
 
-    const sequences = generateCustomSequences(beatTimes, band);
+    const vocalOnsets = analyzeVocalOnsets(audioBuffer, bpm);
+
+    statusEl.textContent = `Found ${vocalOnsets.length} vocal onsets. Building choreography…`;
+    await new Promise((r) => setTimeout(r, 20));
+
+    const sequences = generateCustomSequences(beatTimes, band, vocalOnsets);
     const id = `custom-${Date.now()}`;
     const bandLabel =
       band === "rock" ? "Rock Afire Explosion" : "Munch's Make Believe Band";
@@ -1042,7 +1210,7 @@ async function buildCustomShowtape(file, title, band) {
     const tape = {
       id,
       title,
-      description: `Custom show generated from \u201c${file.name}\u201d. Detected ~${bpm} BPM with ${beatTimes.length} beats. ${sequences.length} choreography cues for ${bandLabel}.`,
+      description: `Custom show generated from \u201c${file.name}\u201d. Detected ~${bpm} BPM, ${beatTimes.length} beats, ${vocalOnsets.length} vocal onsets. ${sequences.length} choreography cues for ${bandLabel}.`,
       duration: durationMs,
       bitrate: 600,
       band,

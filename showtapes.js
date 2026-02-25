@@ -390,11 +390,29 @@ function buildComeTogetherRFESongMapped() {
   }
 
   function rolfeSings(from, to) {
-    for (let t = from; t < to; t += BEAT / 2) {
-      mv(t, "Rolfe", "mouth");
+    // Fire jaw-open + jaw-close pairs at a syllable grid.
+    // Real English lyrics average ~3-5 syllables per second at 84 BPM,
+    // which works out to roughly one syllable every BEAT/2 (357 ms).
+    // Each open is held for ~80 ms (one short syllable) then closed.
+    // We skip the jaw on the 3rd quarter of each bar — that's typically
+    // a rest/breath point in "Come Together" phrasing.
+    const SYLLABLE = Math.round(BEAT / 2); // ~357 ms per syllable slot
+    const JAW_HOLD = 80;                   // ms jaw stays open
+    let slotIdx = 0;
+    for (let t = from; t < to; t += SYLLABLE) {
+      // Skip the 3rd-quarter slot of every bar (breath / phrase gap)
+      const posInBar = Math.round(t - from) % Math.round(BAR);
+      if (posInBar >= Math.round(BEAT * 2) && posInBar < Math.round(BEAT * 2.5)) {
+        slotIdx++;
+        continue;
+      }
+      mv(t,            "Rolfe", "mouth"); // open
+      mv(t + JAW_HOLD, "Rolfe", "mouth"); // close
+      slotIdx++;
     }
+    // Head movements follow phrase rhythm (one turn per beat, not tied to jaw)
     for (let t = from; t < to; t += BAR) {
-      mv(t + BEAT, "Rolfe", "head_left");
+      mv(t + BEAT,     "Rolfe", "head_left");
       mv(t + BEAT * 3, "Rolfe", "head_right");
     }
   }
@@ -412,7 +430,15 @@ function buildComeTogetherRFESongMapped() {
     for (let t = from; t < to; t += BAR) {
       mv(t, "Rolfe", "arm_right_raise");
       mv(t + BEAT / 2, "Rolfe", "arm_left_raise");
-      mv(t + BEAT, "Rolfe", "mouth");
+      // "Come to-geth-er" — 4 syllables, open+close pairs
+      mv(t + BEAT,       "Rolfe", "mouth"); // "Come" open
+      mv(t + BEAT + 80,  "Rolfe", "mouth"); // "Come" close
+      mv(t + BEAT * 1.5, "Rolfe", "mouth"); // "to-" open
+      mv(t + BEAT * 1.5 + 80, "Rolfe", "mouth"); // "to-" close
+      mv(t + BEAT * 2,   "Rolfe", "mouth"); // "-geth-" open
+      mv(t + BEAT * 2 + 80, "Rolfe", "mouth"); // "-geth-" close
+      mv(t + BEAT * 3,   "Rolfe", "mouth"); // "-er" open
+      mv(t + BEAT * 3 + 80, "Rolfe", "mouth"); // "-er" close
       mv(t, "Mitzi", "arm_swing");
       mv(t + BEAT / 2, "Mitzi", "waist_sway");
       mv(t, "Billy Bob", "guitar_up");
@@ -573,7 +599,15 @@ function buildComeTogetherRFESongMapped() {
   for (let t = C4; t < 218571; t += BAR) {
     mv(t, "Rolfe", "arm_right_raise");
     mv(t + BEAT / 2, "Rolfe", "arm_left_raise");
-    mv(t + BEAT, "Rolfe", "mouth");
+    // "Come together" — two syllables per bar, open+close each
+    mv(t + BEAT,      "Rolfe", "mouth");        // "Come" open
+    mv(t + BEAT + 80, "Rolfe", "mouth");        // "Come" close
+    mv(t + BEAT * 2,  "Rolfe", "mouth");        // "to-" open
+    mv(t + BEAT * 2 + 80, "Rolfe", "mouth");   // "to-" close
+    mv(t + BEAT * 2 + 200, "Rolfe", "mouth");  // "-geth-" open
+    mv(t + BEAT * 2 + 280, "Rolfe", "mouth");  // "-geth-" close
+    mv(t + BEAT * 3,  "Rolfe", "mouth");        // "-er" open
+    mv(t + BEAT * 3 + 80, "Rolfe", "mouth");   // "-er" close
     mv(t + BEAT * 2, "Rolfe", "body_lean");
     mv(t, "Mitzi", "arm_swing");
     mv(t + BEAT * 2, "Mitzi", "waist_sway");
@@ -587,7 +621,6 @@ function buildComeTogetherRFESongMapped() {
     mv(t + BEAT * 2, "Fatz", "torso_twist");
     mv(t, "Dook LaRue", "arm_up");
     mv(t + BEAT * 3, "Dook LaRue", "cymbal_reach");
-    mv(t + BEAT, "Earl", "mouth");
     mv(t + BEAT * 2, "Earl", "eyebrow_raise");
   }
   drums(C4, 218571);
