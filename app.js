@@ -67,6 +67,11 @@ let songGainNode = null; // gain node for the song
 // localStorage key for persisted custom showtapes
 const CUSTOM_SHOWS_KEY = "cyberstar_custom_shows";
 
+// ── v2: LED grid visual-latch state ────────────────────────────────────────
+const LED_LATCH_MS = 90; // ms to hold LED lit after slot clears
+const ledLastActive = new Array(8).fill(0); // timestamp of last activation per slot
+const ledLastByte = new Uint8Array(8); // last non-zero byte seen per slot
+
 // Initialize the application
 document.addEventListener("DOMContentLoaded", function () {
   setupEventListeners();
@@ -79,7 +84,10 @@ document.addEventListener("DOMContentLoaded", function () {
     `${bandConfig.title} - Signal Monitors`;
 
   // Configure the TDM stream slot assignments for the initial band
-  setupCurrentBandSlots();
+  setupCurrentBandSlots(); // also calls buildLEDGrid()
+
+  // Poll the LED grid at ~25 fps even when no show is playing (covers manual sends)
+  setInterval(updateLEDGrid, 40);
 
   updateSignalMonitor("System initialized. TDM stream ready.");
 });
@@ -93,6 +101,99 @@ function setupCurrentBandSlots() {
     (c) => c.name,
   );
   signalGenerator.setupBandSlots(chars);
+  buildLEDGrid(); // refresh labels whenever band changes
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v2 — TDM Frame Monitor: live 8×8 LED bit-grid
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Build (or rebuild) the LED grid DOM. Called once on init and again
+ * whenever the active band changes so character labels stay correct.
+ */
+function buildLEDGrid() {
+  const grid = document.getElementById("led-grid");
+  if (!grid) return;
+  grid.innerHTML = "";
+
+  const bandCfg = BAND_CONFIG[currentBand];
+  const charNames = Object.values(bandCfg.characters).map((c) => c.name);
+
+  for (let s = 0; s < 8; s++) {
+    const row = document.createElement("div");
+    row.className = "led-row";
+
+    // Character label
+    const label = document.createElement("span");
+    label.className = "led-label";
+    label.id = `led-label-${s}`;
+    label.textContent = charNames[s] || `Slot ${s}`;
+    row.appendChild(label);
+
+    // 8-bit LED cluster (MSB left)
+    const bits = document.createElement("div");
+    bits.className = "led-bits";
+    for (let b = 7; b >= 0; b--) {
+      const led = document.createElement("span");
+      led.className = "led";
+      led.id = `led-${s}-${b}`;
+      bits.appendChild(led);
+    }
+    row.appendChild(bits);
+
+    // Hex readout
+    const hex = document.createElement("span");
+    hex.className = "led-hex";
+    hex.id = `led-hex-${s}`;
+    hex.textContent = "0x00";
+    row.appendChild(hex);
+
+    grid.appendChild(row);
+  }
+}
+
+/**
+ * Read the current TDM slot states from the signal generator, apply an
+ * 90 ms visual latch so brief pulses remain visible, then update every
+ * LED element and hex readout accordingly.
+ */
+function updateLEDGrid() {
+  const slots = signalGenerator.channelSlots;
+  const bandCfg = BAND_CONFIG[currentBand];
+  const charNames = Object.values(bandCfg.characters).map((c) => c.name);
+  const now = Date.now();
+
+  for (let s = 0; s < 8; s++) {
+    const live = slots[s];
+    if (live !== 0x00) {
+      ledLastByte[s] = live;
+      ledLastActive[s] = now;
+    }
+
+    // Use the latched byte so very short pulses (50 ms) stay visible
+    const displayByte =
+      now - ledLastActive[s] < LED_LATCH_MS ? ledLastByte[s] : 0;
+
+    // Update label (covers band-switch without full rebuild)
+    const labelEl = document.getElementById(`led-label-${s}`);
+    if (labelEl) labelEl.textContent = charNames[s] || `Slot ${s}`;
+
+    // Hex value
+    const hexEl = document.getElementById(`led-hex-${s}`);
+    if (hexEl) {
+      hexEl.textContent = `0x${displayByte.toString(16).toUpperCase().padStart(2, "0")}`;
+      hexEl.style.color = displayByte ? "#00d4ff" : "#333";
+    }
+
+    // Per-bit LEDs
+    for (let b = 7; b >= 0; b--) {
+      const led = document.getElementById(`led-${s}-${b}`);
+      if (!led) continue;
+      const on = (displayByte >> b) & 1;
+      led.className = on ? "led led-on" : "led";
+    }
+  }
 }
 
 /**
@@ -857,19 +958,27 @@ function selectAndPlayCustomShow(id) {
 // ─── Beat Detection ───────────────────────────────────────────────────────────────────
 
 /**
- * Vocal-band onset detector.
+ * Vocal-band onset detector — v2 Hysteresis Edition.
  *
- * Strategy: separate the audio into two frequency bands using a simple
- * one-pole IIR filter pair, then run the same energy-comparative onset
- * detector on the HIGH band only (approx 800 Hz–8 kHz) — the range where
- * consonants, vowel formants, and voice attack transients live.  The LOW
- * band (kick, bass) is subtracted to avoid beat-hits masking vocal onsets.
+ * Uses a TWO-threshold state machine instead of a single trigger level:
+ *   T1 (1.4×) — upper threshold: jaw OPENS only when energy exceeds this
+ *   T2 (0.85×) — lower threshold: jaw CLOSES only when energy drops below this
+ * The gap between T1 and T2 provides hysteresis, preventing stutter on
+ * soft consonants and micro-pauses between syllables.
  *
- * Returns onset times in ms.  These become jaw-open cues for the frontman.
+ * Additional features:
+ *   • Minimum hold (MIN_HOLD_FRAMES ≈ 80 ms): once open, jaw cannot close
+ *     sooner — simulates mechanical inertia.
+ *   • Anti-lock (MAX_CLOSED_FRAMES ≈ 400 ms): if the jaw has been closed for
+ *     too long while vocal energy is still present (held vowels, falsetto),
+ *     a re-open pulse is forced to keep the character looking alive.
+ *   • Bass suppression: frames dominated by kick/bass are ignored.
+ *
+ * Returns jaw-OPEN event times in ms (one entry per open transition).
  *
  * @param   {AudioBuffer} audioBuffer
- * @param   {number}      bpm   used to set the minimum gap (≤ half a beat)
- * @returns {number[]}          Vocal onset times in ms
+ * @param   {number}      bpm   used to set minimum hold proportional to tempo
+ * @returns {number[]}          Jaw-open onset times in ms
  */
 function analyzeVocalOnsets(audioBuffer, bpm) {
   const sr = audioBuffer.sampleRate;
@@ -884,7 +993,6 @@ function analyzeVocalOnsets(audioBuffer, bpm) {
   }
 
   // ── One-pole IIR high-pass (≈800 Hz) ──────────────────────────────────
-  // y[n] = α * (y[n-1] + x[n] - x[n-1])  where α = RC/(RC+dt)
   const RC_HP = 1 / (2 * Math.PI * 800);
   const dt = 1 / sr;
   const alphaHP = RC_HP / (RC_HP + dt);
@@ -893,7 +1001,7 @@ function analyzeVocalOnsets(audioBuffer, bpm) {
   for (let i = 1; i < len; i++)
     hi[i] = alphaHP * (hi[i - 1] + mono[i] - mono[i - 1]);
 
-  // ── One-pole IIR low-pass (≈200 Hz) — the kick/bass band ──────────────
+  // ── One-pole IIR low-pass (≈200 Hz) — kick/bass band ──────────────────
   const RC_LP = 1 / (2 * Math.PI * 200);
   const alphaLP = dt / (RC_LP + dt);
   const lo = new Float32Array(len);
@@ -901,7 +1009,7 @@ function analyzeVocalOnsets(audioBuffer, bpm) {
   for (let i = 1; i < len; i++)
     lo[i] = lo[i - 1] + alphaLP * (mono[i] - lo[i - 1]);
 
-  // ── Short-time energy per frame (~10.7 ms) ─────────────────────────────
+  // ── Short-time energy per frame (~10.7 ms at 48 kHz) ──────────────────
   const FRAME = 512;
   const nFrames = Math.floor(len / FRAME);
   const hiEnergy = new Float32Array(nFrames);
@@ -922,41 +1030,68 @@ function analyzeVocalOnsets(audioBuffer, bpm) {
   const cumHi = new Float64Array(nFrames + 1);
   for (let f = 0; f < nFrames; f++) cumHi[f + 1] = cumHi[f] + hiEnergy[f];
 
-  // Rolling window: ±120 ms each side
+  // Rolling local-average window: ±120 ms each side
   const HALF = Math.round((0.12 * sr) / FRAME);
-  // Minimum gap: half a beat (so we can catch every syllable)
+
+  // Minimum hold before the jaw is allowed to close (~80 ms or ½ beat if slower)
   const beatMs = bpm > 0 ? 60000 / bpm : 500;
-  const MIN_GAP = Math.max(
-    Math.round((0.08 * sr) / FRAME), // never less than 80 ms
+  const MIN_HOLD_FRAMES = Math.max(
+    Math.round((0.08 * sr) / FRAME),
     Math.round((((beatMs * 0.45) / 1000) * sr) / FRAME),
   );
-  // Vocal onsets need to exceed their local background by this factor.
-  // Lower than the beat detector (1.5) — vocals are softer than transients.
-  const THRESHOLD = 1.25;
-  // How much louder lo must be vs hi for us to consider this a bass hit
-  // and suppress it as a vocal onset
-  const BASS_SUPPRESS = 3.0;
 
-  const onsets = [];
-  let lastOnset = -MIN_GAP;
+  // Anti-lock: force re-open after this many closed frames (~400 ms)
+  const MAX_CLOSED_FRAMES = Math.round((0.4 * sr) / FRAME);
+
+  const BASS_SUPPRESS = 3.0; // ignore frame if bass is 3× louder than highs
+
+  // ── Hysteresis thresholds ──────────────────────────────────────────────
+  const T1 = 1.4; // normalized energy required to OPEN  (upper)
+  const T2 = 0.85; // normalized energy below which jaw CLOSES (lower)
+
+  const onsets = []; // jaw-open event times in ms
+  let jawOpen = false;
+  let holdFrames = 0; // frames elapsed since jaw opened
+  let framesSinceClosed = 0; // frames elapsed since jaw closed
 
   for (let f = 1; f < nFrames - 1; f++) {
-    if (f - lastOnset < MIN_GAP) continue;
-
-    // Skip frames dominated by bass/kick
-    if (loEnergy[f] > hiEnergy[f] * BASS_SUPPRESS) continue;
+    const bassHit = loEnergy[f] > hiEnergy[f] * BASS_SUPPRESS;
 
     const lo2 = Math.max(0, f - HALF);
     const hi2 = Math.min(nFrames, f + HALF);
     const localAvg = (cumHi[hi2] - cumHi[lo2]) / (hi2 - lo2);
+    const normalized = localAvg > 0 ? hiEnergy[f] / localAvg : 0;
 
-    if (
-      hiEnergy[f] > THRESHOLD * localAvg &&
-      hiEnergy[f] >= hiEnergy[f - 1] &&
-      hiEnergy[f] >= hiEnergy[f + 1]
-    ) {
-      onsets.push(Math.round((f * FRAME * 1000) / sr));
-      lastOnset = f;
+    if (!jawOpen) {
+      framesSinceClosed++;
+
+      // Primary open: energy crosses T1
+      if (!bassHit && normalized >= T1) {
+        jawOpen = true;
+        holdFrames = 0;
+        framesSinceClosed = 0;
+        onsets.push(Math.round((f * FRAME * 1000) / sr));
+      }
+      // Anti-lock: been closed too long while vocal signal is still present
+      else if (
+        framesSinceClosed >= MAX_CLOSED_FRAMES &&
+        !bassHit &&
+        normalized > 0.7
+      ) {
+        jawOpen = true;
+        holdFrames = 0;
+        framesSinceClosed = 0;
+        onsets.push(Math.round((f * FRAME * 1000) / sr));
+      }
+    } else {
+      holdFrames++;
+      // Only allow close after minimum hold has elapsed
+      if (holdFrames >= MIN_HOLD_FRAMES) {
+        if (bassHit || normalized < T2) {
+          jawOpen = false;
+          framesSinceClosed = 0;
+        }
+      }
     }
   }
   return onsets;
@@ -1123,33 +1258,34 @@ function generateCustomSequences(beatTimes, band, vocalOnsets = []) {
     }
   });
 
-  // ── Jaw (mouth) cues driven by vocal onsets ─────────────────────────────
-  // Each onset → open jaw; 80 ms later → close (if within song duration)
-  const JAW_CLOSE_DELAY = 80; // ms — short syllable close
-  const JAW_MIN_GAP = 60; // ms — don't stack two opens within this window
+  // ── Jaw (mouth) cues driven by vocal onsets — v2 dynamic hold ──────────
+  // Open at each vocal onset; close time is proportional to the gap before
+  // the next onset (70 % of gap, clamped 80–350 ms).  This keeps the jaw
+  // open on long vowels and snaps it shut on rapid-fire consonants.
+  const JAW_MIN_GAP = 60; // ms — no two opens within this window
   const songEnd = beatTimes.length
     ? beatTimes[beatTimes.length - 1] + 2000
     : Infinity;
 
-  // Build a quick lookup set of already-scheduled mouth times
   const mouthTimes = new Set();
-
   const addJaw = (t) => {
-    // Skip if too close to a previous mouth cue
     for (const mt of mouthTimes) if (Math.abs(mt - t) < JAW_MIN_GAP) return;
     addMovement(sequences, t, frontman, "mouth");
     mouthTimes.add(t);
   };
 
   if (vocalOnsets.length > 0) {
-    vocalOnsets.forEach((onsetMs) => {
+    vocalOnsets.forEach((onsetMs, i) => {
       if (onsetMs > songEnd) return;
       addJaw(onsetMs); // open
-      addJaw(Math.round(onsetMs + JAW_CLOSE_DELAY)); // close
+      // Dynamic close: hold 70 % of gap to next onset, clamped to [80, 350] ms
+      const nextOnset = vocalOnsets[i + 1] || onsetMs + 600;
+      const gap = nextOnset - onsetMs;
+      const holdMs = Math.max(80, Math.min(350, Math.round(gap * 0.7)));
+      addJaw(Math.round(onsetMs + holdMs)); // close
     });
   } else {
-    // Fallback when no vocal onsets detected: fire mouth every half-beat
-    // for the frontman (same as old behaviour, but filtered to frontman only)
+    // Fallback — no vocal onsets detected: half-beat grid with 120 ms hold
     if (beatTimes.length >= 2) {
       const avgBeat =
         (beatTimes[beatTimes.length - 1] - beatTimes[0]) /
@@ -1157,7 +1293,7 @@ function generateCustomSequences(beatTimes, band, vocalOnsets = []) {
       const halfBeat = avgBeat / 2;
       for (let t = beatTimes[0]; t <= songEnd; t += halfBeat) {
         addJaw(Math.round(t));
-        addJaw(Math.round(t + JAW_CLOSE_DELAY));
+        addJaw(Math.round(t + 120));
       }
     }
   }

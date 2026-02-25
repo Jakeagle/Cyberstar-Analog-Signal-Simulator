@@ -750,3 +750,64 @@ h1 {
   background: rgba(255, 60, 60, 0.25);
   border-color: rgba(255, 60, 60, 0.7);
 }
+
+/* =========================================================
+   v2 — TDM Frame Monitor LED Grid
+   ========================================================= */
+
+.led-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-family: "Courier New", Courier, monospace;
+  padding: 6px 0;
+}
+
+.led-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.led-label {
+  width: 120px;
+  font-size: 0.76em;
+  color: #80bbc8;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+}
+
+.led-bits {
+  display: flex;
+  gap: 5px;
+}
+
+.led {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #111d20;
+  border: 1px solid #1e3a40;
+  transition:
+    background 0.06s ease,
+    box-shadow 0.06s ease;
+  flex-shrink: 0;
+}
+
+.led.led-on {
+  background: #00d4ff;
+  border-color: #00aadd;
+  box-shadow:
+    0 0 5px #00d4ff,
+    0 0 12px rgba(0, 212, 255, 0.45);
+}
+
+.led-hex {
+  font-size: 0.78em;
+  color: #333;
+  min-width: 38px;
+  transition: color 0.1s ease;
+}
