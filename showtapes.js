@@ -666,6 +666,58 @@ function buildComeTogetherRFESongMapped() {
   return seq;
 }
 
+/**
+ * Diagnostic Tape Builder
+ * Cycles through every movement of every character, pulsing each one
+ * ON → OFF, three times, before advancing to the next movement.
+ * Mirrors the behaviour of real Cyberstar factory diagnostic tapes.
+ *
+ * @param {string[]} characterList  Ordered array of character names to test
+ * @returns {{ sequences: object[], totalDurationMs: number }}
+ */
+function buildDiagnosticSequences(characterList) {
+  const REPS       = 3;    // pulses per movement
+  const ON_MS      = 300;  // how long to hold the bit ON (ms)
+  const REP_CYCLE  = 700;  // total time allocated per rep (ON + gap)
+  const MOVE_GAP   = 600;  // extra silence between movements
+  const CHAR_GAP   = 1500; // silence between characters
+
+  const sequences = [];
+  let t = 1000; // 1 s lead-in
+
+  for (const charName of characterList) {
+    const charEntry = CHARACTER_MOVEMENTS[charName];
+    if (!charEntry) continue;
+
+    const moves = Object.keys(charEntry.movements);
+    for (const moveKey of moves) {
+      const label = moveKey.replace(/_/g, " ");
+      for (let r = 0; r < REPS; r++) {
+        const start = t + r * REP_CYCLE;
+        sequences.push({
+          time: start,
+          character: charName,
+          movement: moveKey,
+          state: true,
+          movement_display: `DIAG: ${charName} — ${label} ON (${r + 1}/${REPS})`,
+        });
+        sequences.push({
+          time: start + ON_MS,
+          character: charName,
+          movement: moveKey,
+          state: false,
+          movement_display: `DIAG: ${charName} — ${label} OFF`,
+        });
+      }
+      t += REPS * REP_CYCLE + MOVE_GAP;
+    }
+    t += CHAR_GAP;
+  }
+
+  sequences.sort((a, b) => a.time - b.time);
+  return { sequences, totalDurationMs: t + 1000 };
+}
+
 const SHOWTAPES = {
   "come-together-mmbb": {
     title: "Come Together - MMBB Full Show",
@@ -1137,6 +1189,55 @@ const SHOWTAPES = {
       },
     ],
   },
+
+  // ── Diagnostic Tapes ────────────────────────────────────────────────────
+  "diag-rfe": (() => {
+    const RFE_CHARS = [
+      "Rolfe",
+      "Earl",
+      "Dook LaRue",
+      "Fatz",
+      "Beach Bear",
+      "Mitzi",
+      "Billy Bob",
+    ];
+    const { sequences, totalDurationMs } = buildDiagnosticSequences(RFE_CHARS);
+    return {
+      title: "\uD83D\uDD27 RFE Diagnostic Tape",
+      description:
+        "Factory-style diagnostic tape for The Rock-Afire Explosion. " +
+        "Each movement is pulsed ON/OFF three times in sequence, character by character: " +
+        "Rolfe \u2192 Earl \u2192 Dook LaRue \u2192 Fatz \u2192 Beach Bear \u2192 Mitzi \u2192 Billy Bob. " +
+        "Use to verify every actuator is receiving its correct bit address.",
+      duration: totalDurationMs,
+      bitrate: 4800,
+      band: "rock",
+      sequences,
+    };
+  })(),
+
+  "diag-mmbb": (() => {
+    const MMBB_CHARS = [
+      "Chuck E. Cheese",
+      "Munch",
+      "Helen Henny",
+      "Jasper T. Jowls",
+      "Pasqually",
+    ];
+    const { sequences, totalDurationMs } = buildDiagnosticSequences(MMBB_CHARS);
+    return {
+      title: "\uD83D\uDD27 MMBB Diagnostic Tape",
+      description:
+        "Factory-style diagnostic tape for Munch\u2019s Make Believe Band. " +
+        "Each movement is pulsed ON/OFF three times in sequence, character by character: " +
+        "Chuck E. Cheese \u2192 Munch \u2192 Helen Henny \u2192 Jasper T. Jowls \u2192 Pasqually. " +
+        "Use to verify every actuator is receiving its correct bit address.",
+      duration: totalDurationMs,
+      bitrate: 4800,
+      band: "munch",
+      sequences,
+    };
+  })(),
 };
 
 // Get showtape by ID
