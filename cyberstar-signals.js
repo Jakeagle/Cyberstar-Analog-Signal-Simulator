@@ -98,20 +98,24 @@ class CyberstarSignalGenerator {
    * Produces a bipolar square wave (+1 / −1) with BMC phase transitions.
    */
   generateBMCWaveform(bits) {
+    // Use a floating-point accumulator so the per-frame sample count is exact
+    // (96 bits × 9.1875 = 882 samples at 44100 Hz; 96 × 10.0 = 960 at 48000 Hz).
+    // Math.floor on cumulative products avoids rounding drift across a frame.
     const samplesPerBit = this.sampleRate / this.bitrate;
-    const samplesPerHalf = samplesPerBit / 2;
-    const totalSamples = Math.ceil(bits.length * samplesPerBit);
+    const totalSamples = Math.round(bits.length * samplesPerBit);
     const waveform = new Float32Array(totalSamples);
     let level = 1; // start at +1
+    let sampleAccum = 0.0;
 
     for (let bi = 0; bi < bits.length; bi++) {
       const bit = bits[bi];
-      const start = Math.floor(bi * samplesPerBit);
-      const end = Math.floor((bi + 1) * samplesPerBit);
-      const midpoint = Math.floor(start + samplesPerHalf);
+      const start = Math.round(sampleAccum);
+      sampleAccum += samplesPerBit;
+      const end = Math.round(sampleAccum);
+      const midpoint = (start + end) >> 1; // integer mid, no rounding error
 
       if (bit === 1) {
-        // First half at current level
+        // First half at current level — hard ±1.0 square
         for (let i = start; i < midpoint; i++) waveform[i] = level;
         level *= -1; // mid-bit transition
         for (let i = midpoint; i < end; i++) waveform[i] = level;

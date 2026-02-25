@@ -237,8 +237,10 @@ function buildLEDGrid() {
 function updateLEDGrid() {
   if (!signalGenerator) return;
 
-  const update = (buf, prefix) => {
+  const update = (buf, lastBuf, prefix) => {
     for (let s = 0; s < 12; s++) {
+      if (buf[s] === lastBuf[s]) continue; // byte unchanged — skip DOM thrash
+      lastBuf[s] = buf[s];
       const val = buf[s];
       const hexEl = document.getElementById(`led-hex-${prefix}-${s}`);
       if (hexEl) {
@@ -255,8 +257,8 @@ function updateLEDGrid() {
     }
   };
 
-  update(signalGenerator.trackTD, "td");
-  update(signalGenerator.trackBD, "bd");
+  update(signalGenerator.trackTD, signalGenerator.trackTD_last, "td");
+  update(signalGenerator.trackBD, signalGenerator.trackBD_last, "bd");
 
   // Update the stage if open
   if (document.getElementById("stage-modal").style.display === "block") {
@@ -1817,12 +1819,16 @@ async function exportSignalWAV() {
     }
 
     function makeBMCWave(bits) {
-      const w = new Float32Array(Math.ceil(bits.length * samplesPerBit));
+      // Floating-point accumulator — same fix as cyberstar-signals.js to avoid
+      // per-bit rounding drift (Math.floor on products drifts; accumulator doesn't).
+      const w = new Float32Array(Math.round(bits.length * samplesPerBit));
       let level = 1;
+      let sampleAccum = 0.0;
       for (let bi = 0; bi < bits.length; bi++) {
-        const start = Math.floor(bi * samplesPerBit);
-        const end = Math.floor((bi + 1) * samplesPerBit);
-        const mid = Math.floor(start + samplesPerBit / 2);
+        const start = Math.round(sampleAccum);
+        sampleAccum += samplesPerBit;
+        const end = Math.round(sampleAccum);
+        const mid = (start + end) >> 1;
         if (bits[bi] === 1) {
           for (let i = start; i < mid; i++) w[i] = level;
           level *= -1;
