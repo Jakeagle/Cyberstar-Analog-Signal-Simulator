@@ -872,6 +872,9 @@ h1 {
   border-color: rgba(130, 60, 255, 0.7);
   color: #d8c0ff;
 }
+
+/* Show Import Panel */
+.show-import-panel {
   margin-top: 28px;
   padding: 18px 20px;
   background: rgba(0, 212, 100, 0.04);
