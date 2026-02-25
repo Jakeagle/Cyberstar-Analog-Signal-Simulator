@@ -1064,43 +1064,86 @@ function exportShowJSON(id) {
   const tape = SHOWTAPES[id];
   if (!tape) return;
 
-  // Build a clean, readable export object
+  const FPS = 50;
+  const MS_PER_FRAME = 1000 / FPS; // 20 ms
+
+  /** Convert milliseconds to a human-readable MM:SS.mmm annotation. */
+  function msToTimestamp(ms) {
+    const minutes = Math.floor(ms / 60000);
+    const seconds = Math.floor((ms % 60000) / 1000);
+    const millis  = Math.round(ms % 1000);
+    return (
+      String(minutes).padStart(2, "0") + ":" +
+      String(seconds).padStart(2, "0") + "." +
+      String(millis).padStart(3, "0")
+    );
+  }
+
+  // Group cues by character, sorted by frame
+  const characterMap = {};
+  const validCues = tape.sequences
+    .filter((s) => s.character && s.movement && typeof s.state !== "undefined")
+    .sort((a, b) => a.time - b.time);
+
+  for (const s of validCues) {
+    const charEntry = CHARACTER_MOVEMENTS[s.character];
+    if (!charEntry || !charEntry.movements[s.movement]) continue;
+    const moveInfo = charEntry.movements[s.movement];
+    const frame    = Math.round(s.time / MS_PER_FRAME);
+
+    if (!characterMap[s.character]) {
+      characterMap[s.character] = { track: moveInfo.track, signals: [] };
+    }
+
+    characterMap[s.character].signals.push({
+      frame,
+      timestamp: msToTimestamp(s.time), // read-only reference — import uses frame
+      movement: s.movement,
+      bit:   moveInfo.bit,   // BMC bit index on the track (0–95)
+      state: s.state,        // true = actuator ON, false = OFF
+      note:  s.note || "",   // freeform annotation, ignored at import
+    });
+  }
+
+  const totalFrames = Math.round(tape.duration / MS_PER_FRAME);
+  const charCount   = Object.keys(characterMap).length;
+
   const exportObj = {
     cyberstar_show: true,
-    version: "2.1",
-    title: tape.title,
-    band: tape.band, // "rock" | "munch"
-    duration: tape.duration, // ms
-    bpm: tape.bpm || null,
+    version: "3.0",
+    title:       tape.title,
+    band:        tape.band,          // "rock" | "munch"
+    duration_ms: tape.duration,
+    duration_frames: totalFrames,
+    fps:         FPS,                // frames per second (always 50 for BMC)
+    bpm:         tape.bpm  || null,
     description: tape.description || "",
-    // ── Sequence cues ───────────────────────────────────────────────────────
-    // Each entry is one bit-state change on a character's movement actuator.
+    // ── How to edit this file ───────────────────────────────────────────────
+    // Each character has a "signals" array. Every entry is one actuator
+    // state-change (ON or OFF) on a single movement.
+    //
+    // To add a cue:   copy any existing entry, set the frame + state you want,
+    //                 and paste it in frame-number order.
+    // To remove a cue: delete the entry (keep ON/OFF pairs balanced).
+    // frame → ms:     frame × 20        (at 50 fps)
+    // ms → frame:     Math.round(ms / 20)
     //
     // Fields:
-    //   time        (ms)    when this cue fires, from show start
-    //   character   (str)   character name, must match CHARACTER_MOVEMENTS
-    //   movement    (str)   movement key, e.g. "mouth", "head_left"
-    //   state       (bool)  true = actuator ON, false = OFF
-    //   note        (str)   optional freeform annotation (ignored at import)
-    sequences: tape.sequences
-      .filter(
-        (s) => s.character && s.movement && typeof s.state !== "undefined",
-      )
-      .sort((a, b) => a.time - b.time)
-      .map((s) => ({
-        time: s.time,
-        character: s.character,
-        movement: s.movement,
-        state: s.state,
-        note: s.note || "",
-      })),
+    //   frame      (int)   frame number from show start — THIS drives timing
+    //   timestamp  (str)   "MM:SS.mmm" annotation only — NOT read at import
+    //   movement   (str)   movement key (must match CHARACTER_MOVEMENTS)
+    //   bit        (int)   BMC bit index shown for reference; ignored at import
+    //   state      (bool)  true = actuator ON, false = OFF
+    //   note       (str)   freeform, ignored at import
+    // ───────────────────────────────────────────────────────────────────────
+    characters: characterMap,
   };
 
   const json = JSON.stringify(exportObj, null, 2);
   const blob = new Blob([json], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href     = url;
   a.download = `${tape.title.replace(/[^a-z0-9_\-]/gi, "_")}.cybershow.json`;
   document.body.appendChild(a);
   a.click();
@@ -1108,17 +1151,18 @@ function exportShowJSON(id) {
   setTimeout(() => URL.revokeObjectURL(url), 15000);
 
   updateSignalMonitor(
-    `Exported show: "${tape.title}" (${exportObj.sequences.length} cues)`,
+    `Exported show: "${tape.title}" (${validCues.length} cues across ${charCount} characters)`,
   );
 }
 
 /**
  * Validate and import a .cybershow.json file, adding it as a custom showtape.
+ * Accepts v3.0 (character-centric) and legacy v2.1 (flat sequences) formats.
  */
 function importShowJSON(file) {
   const statusEl = document.getElementById("import-show-status");
-  const btn = document.getElementById("import-show-btn");
-  btn.disabled = true;
+  const btn      = document.getElementById("import-show-btn");
+  btn.disabled   = true;
   statusEl.style.color = "";
   statusEl.textContent = "Reading file…";
 
@@ -1127,63 +1171,89 @@ function importShowJSON(file) {
     try {
       const obj = JSON.parse(e.target.result);
 
-      // Basic format validation
+      // ── Basic validation ─────────────────────────────────────────────────
       if (!obj.cyberstar_show)
         throw new Error("Not a valid .cybershow.json file.");
       if (!obj.band || !["rock", "munch"].includes(obj.band))
-        throw new Error(
-          'Missing or invalid "band" field. Must be "rock" or "munch".',
-        );
-      if (!Array.isArray(obj.sequences) || obj.sequences.length === 0)
-        throw new Error("No sequences found in file.");
+        throw new Error('Missing or invalid "band" field. Must be "rock" or "munch".');
 
-      // Validate and clean each cue
-      const sequences = [];
-      let skipped = 0;
-      for (const s of obj.sequences) {
-        if (
-          typeof s.time !== "number" ||
-          !s.character ||
-          !s.movement ||
-          typeof s.state !== "boolean"
-        ) {
-          skipped++;
-          continue;
+      const FPS          = obj.fps || 50;
+      const MS_PER_FRAME = 1000 / FPS;
+      const sequences    = [];
+      let   skipped      = 0;
+
+      // ── v3.0: character-centric format ───────────────────────────────────
+      if (obj.characters && typeof obj.characters === "object") {
+        for (const [charName, charData] of Object.entries(obj.characters)) {
+          const charEntry = CHARACTER_MOVEMENTS[charName];
+          if (!charEntry) {
+            skipped += (charData.signals || []).length;
+            continue;
+          }
+          for (const sig of (charData.signals || [])) {
+            if (
+              typeof sig.frame !== "number" ||
+              !sig.movement ||
+              typeof sig.state !== "boolean"
+            ) { skipped++; continue; }
+            if (!charEntry.movements[sig.movement]) { skipped++; continue; }
+            sequences.push({
+              time:      Math.max(0, Math.round(sig.frame * MS_PER_FRAME)),
+              character: charName,
+              movement:  sig.movement,
+              state:     sig.state,
+              note:      sig.note || "",
+              executed:  false,
+            });
+          }
         }
-        const charEntry = CHARACTER_MOVEMENTS[s.character];
-        if (!charEntry || !charEntry.movements[s.movement]) {
-          skipped++;
-          continue;
+
+      // ── v2.1 legacy: flat sequences array ────────────────────────────────
+      } else if (Array.isArray(obj.sequences) && obj.sequences.length > 0) {
+        for (const s of obj.sequences) {
+          if (
+            typeof s.time !== "number" ||
+            !s.character ||
+            !s.movement ||
+            typeof s.state !== "boolean"
+          ) { skipped++; continue; }
+          const charEntry = CHARACTER_MOVEMENTS[s.character];
+          if (!charEntry || !charEntry.movements[s.movement]) { skipped++; continue; }
+          sequences.push({
+            time:      Math.max(0, Math.round(s.time)),
+            character: s.character,
+            movement:  s.movement,
+            state:     s.state,
+            note:      s.note || "",
+            executed:  false,
+          });
         }
-        sequences.push({
-          time: Math.max(0, Math.round(s.time)),
-          character: s.character,
-          movement: s.movement,
-          state: s.state,
-          note: s.note || "",
-          executed: false,
-        });
+
+      } else {
+        throw new Error('No "characters" or "sequences" data found in file.');
       }
 
       if (sequences.length === 0)
-        throw new Error(
-          `All ${obj.sequences.length} cues were invalid or referenced unknown characters/movements.`,
-        );
+        throw new Error("All cues were invalid or referenced unknown characters/movements.");
 
-      // Calculate duration: last cue time + 2 s tail, or use file value
-      const lastCue = sequences[sequences.length - 1].time;
+      sequences.sort((a, b) => a.time - b.time);
+
+      // Duration: prefer file value, fall back to last-cue + 2 s tail
+      const lastCue  = sequences[sequences.length - 1].time;
       const duration =
-        obj.duration && obj.duration > lastCue ? obj.duration : lastCue + 2000;
+        (obj.duration_ms  && obj.duration_ms  > lastCue) ? obj.duration_ms  :
+        (obj.duration     && obj.duration     > lastCue) ? obj.duration     :
+        lastCue + 2000;
 
-      const id = `imported-${Date.now()}`;
+      const id   = `imported-${Date.now()}`;
       const tape = {
         id,
-        title: obj.title || file.name.replace(/\.cybershow\.json$/i, ""),
+        title:       obj.title       || file.name.replace(/\.cybershow\.json$/i, ""),
         description: obj.description || `Imported from ${file.name}`,
-        band: obj.band,
-        bpm: obj.bpm || null,
+        band:        obj.band,
+        bpm:         obj.bpm  || null,
         duration,
-        bitrate: 4800,
+        bitrate:  4800,
         isCustom: true,
         sequences,
       };
@@ -1191,30 +1261,29 @@ function importShowJSON(file) {
       SHOWTAPES[id] = tape;
       saveCustomShowtape(tape);
 
-      const msg =
-        skipped > 0
-          ? `✓ Imported "${tape.title}" — ${sequences.length} cues loaded, ${skipped} invalid cues skipped.`
-          : `✓ Imported "${tape.title}" — ${sequences.length} cues loaded.`;
+      const msg = skipped > 0
+        ? `✓ Imported "${tape.title}" — ${sequences.length} cues loaded, ${skipped} invalid cues skipped.`
+        : `✓ Imported "${tape.title}" — ${sequences.length} cues loaded.`;
 
       statusEl.style.color = "#0f8";
-      statusEl.textContent = msg;
+      statusEl.textContent  = msg;
       updateSignalMonitor(msg);
 
       // Reset file input
       document.getElementById("import-show-input").value = "";
-      document.getElementById("import-show-name").textContent =
-        "No file chosen";
+      document.getElementById("import-show-name").textContent = "No file chosen";
       btn.disabled = true;
+
     } catch (err) {
       statusEl.style.color = "#f44";
-      statusEl.textContent = `✗ ${err.message}`;
+      statusEl.textContent  = `✗ ${err.message}`;
     } finally {
-      btn.disabled = true; // stays disabled until new file chosen
+      btn.disabled = true;
     }
   };
   reader.onerror = () => {
     statusEl.style.color = "#f44";
-    statusEl.textContent = "✗ Failed to read file.";
+    statusEl.textContent  = "✗ Failed to read file.";
     btn.disabled = true;
   };
   reader.readAsText(file);
