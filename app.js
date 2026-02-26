@@ -299,10 +299,16 @@ function setupEventListeners() {
     if (e.target.files[0]) loadWAVFile(e.target.files[0]);
   });
 
-  // Export BMC signal as WAV
+  // Export buttons
   document
-    .getElementById("export-wav-btn")
-    .addEventListener("click", exportSignalWAV);
+    .getElementById("export-signal-btn")
+    .addEventListener("click", exportSignalOnly);
+  document
+    .getElementById("export-4ch-btn")
+    .addEventListener("click", export4chWAV);
+  document
+    .getElementById("export-showtape-btn")
+    .addEventListener("click", exportShowFile);
 
   // Stage View Toggle
   document
@@ -1806,204 +1812,233 @@ function encodeStereoWAV(interleavedSamples, sampleRate) {
   return new Blob([buffer], { type: "audio/wav" });
 }
 
-/**
- * Offline-render the full BMC signal track for the currently selected
- * showtape and trigger a browser download of the resulting WAV file.
- *
- * Mirrors the real-time TDM stream engine exactly:
- *   - 20 fps, 11-byte TDM frames, 2400 bps BMC encoding
- *   - Each sequence fires for one frame (50 ms), then the slot auto-clears
- *   - Idle frames are rendered as silence (no background beep)
- */
-async function exportSignalWAV() {
-  if (!currentShowtapeId) {
-    alert("Please select a showtape first.");
-    return;
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared BMC render core — called by all three export functions
+// ─────────────────────────────────────────────────────────────────────────────
+async function _renderBMCFrames(tape, statusEl) {
+  const bandKey = tape.band || currentBand;
+  const bandCfg = BAND_CONFIG[bandKey] || BAND_CONFIG[currentBand];
+  const bandChars = Object.values(bandCfg.characters).map((c) => c.name);
+  const slotMap = new Map();
+  bandChars.forEach((name, i) => {
+    if (i < 8) slotMap.set(name, i);
+  });
+
+  const SAMPLE_RATE = 48000;
+  const BITRATE = 4800;
+  const FRAME_RATE = 50;
+  const AMPLITUDE = 0.85;
+  const NOISE_LEVEL = 0.015;
+  const LOWPASS_HZ = 8000;
+  const VOLUME = currentPlaybackState.volume;
+  const FRAME_MS = 1000 / FRAME_RATE;
+  const bitsPerFrame = 12 * 8;
+  const samplesPerBit = SAMPLE_RATE / BITRATE;
+  const samplesPerFrame = Math.ceil(bitsPerFrame * samplesPerBit);
+  const scale = AMPLITUDE * VOLUME;
+  const totalFrames = Math.ceil(tape.duration / FRAME_MS);
+
+  function encodeBMCBits(bytes) {
+    const bits = [];
+    for (let i = 0; i < bytes.length; i++) {
+      const byte = bytes[i];
+      for (let b = 7; b >= 0; b--) bits.push((byte >> b) & 1);
+    }
+    return bits;
   }
 
+  function makeBMCWave(bits) {
+    const w = new Float32Array(Math.round(bits.length * samplesPerBit));
+    let level = 1;
+    let sampleAccum = 0.0;
+    for (let bi = 0; bi < bits.length; bi++) {
+      const start = Math.round(sampleAccum);
+      sampleAccum += samplesPerBit;
+      const end = Math.round(sampleAccum);
+      const mid = (start + end) >> 1;
+      if (bits[bi] === 1) {
+        for (let i = start; i < mid; i++) w[i] = level;
+        level *= -1;
+        for (let i = mid; i < end; i++) w[i] = level;
+        level *= -1;
+      } else {
+        for (let i = start; i < end; i++) w[i] = level;
+        level *= -1;
+      }
+    }
+    if (NOISE_LEVEL > 0) {
+      for (let i = 0; i < w.length; i++) {
+        w[i] += (Math.random() - 0.5) * 2 * NOISE_LEVEL;
+        w[i] = Math.max(-1, Math.min(1, w[i]));
+      }
+    }
+    return w;
+  }
+
+  function lowpass(w) {
+    const rc = 1.0 / (2 * Math.PI * LOWPASS_HZ);
+    const alpha = 1 / SAMPLE_RATE / (rc + 1 / SAMPLE_RATE);
+    const f = new Float32Array(w.length);
+    f[0] = w[0];
+    for (let i = 1; i < w.length; i++)
+      f[i] = f[i - 1] + alpha * (w[i] - f[i - 1]);
+    return f;
+  }
+
+  const trackTD = new Uint8Array(12);
+  const trackBD = new Uint8Array(12);
+  const outL = new Float32Array(totalFrames * samplesPerFrame);
+  const outR = new Float32Array(totalFrames * samplesPerFrame);
+  let outOffset = 0;
+
+  const seqs = [...tape.sequences].sort((a, b) => a.time - b.time);
+  let seqIdx = 0;
+
+  for (let f = 0; f < totalFrames; f++) {
+    if (f % 200 === 0 && f > 0) {
+      statusEl.textContent = `Rendering… ${Math.round((f / totalFrames) * 100)}%`;
+      await new Promise((r) => setTimeout(r, 0));
+    }
+
+    const frameStartMs = f * FRAME_MS;
+    const frameEndMs = frameStartMs + FRAME_MS;
+
+    while (seqIdx < seqs.length && seqs[seqIdx].time < frameEndMs) {
+      const seq = seqs[seqIdx++];
+      if (seq.time < frameStartMs) continue;
+
+      if (seq.character && seq.movement && typeof seq.state !== "undefined") {
+        const charEntry = CHARACTER_MOVEMENTS[seq.character];
+        if (charEntry) {
+          const m = charEntry.movements[seq.movement];
+          if (m) {
+            const buf = m.track === "TD" ? trackTD : trackBD;
+            const byteIdx = Math.floor(m.bit / 8);
+            const bitPos = 7 - (m.bit % 8);
+            if (seq.state) buf[byteIdx] |= 1 << bitPos;
+            else buf[byteIdx] &= ~(1 << bitPos);
+          }
+        }
+      } else if (seq.data && seq.character && seq.character !== "All") {
+        const slot = slotMap.get(seq.character);
+        if (slot !== undefined && slot < 8)
+          trackTD[slot % 12] = seq.data[seq.data.length - 1];
+      }
+    }
+
+    const hasActivity =
+      trackTD.some((b) => b !== 0) || trackBD.some((b) => b !== 0);
+    if (hasActivity) {
+      const waveL = lowpass(makeBMCWave(encodeBMCBits(trackTD)));
+      const waveR = lowpass(makeBMCWave(encodeBMCBits(trackBD)));
+      const len = Math.min(samplesPerFrame, outL.length - outOffset);
+      for (let i = 0; i < len; i++) {
+        outL[outOffset + i] = Math.max(
+          -1,
+          Math.min(1, (waveL[i] || 0) * scale),
+        );
+        outR[outOffset + i] = Math.max(
+          -1,
+          Math.min(1, (waveR[i] || 0) * scale),
+        );
+      }
+    }
+    outOffset += samplesPerFrame;
+  }
+
+  return { outL, outR, outOffset, bandKey, tape, SAMPLE_RATE };
+}
+
+// Extract music L/R from the cached songBuffer, aligned to `len` frames
+function _extractMusicChannels(len) {
+  const musicL = new Float32Array(len);
+  const musicR = new Float32Array(len);
+  if (songBuffer) {
+    const srcL = songBuffer.getChannelData(0);
+    const srcR =
+      songBuffer.numberOfChannels > 1 ? songBuffer.getChannelData(1) : srcL;
+    const copyLen = Math.min(len, srcL.length);
+    musicL.set(srcL.subarray(0, copyLen));
+    musicR.set(srcR.subarray(0, copyLen));
+  }
+  return { musicL, musicR };
+}
+
+// Shared guard: validate selection, grab btn + status el, disable button
+function _exportGuard(btnId) {
+  if (!currentShowtapeId) {
+    alert("Please select a showtape first.");
+    return null;
+  }
   const tape = SHOWTAPES[currentShowtapeId];
-  const btn = document.getElementById("export-wav-btn");
+  const btn = document.getElementById(btnId);
   const statusEl = document.getElementById("export-wav-status");
   btn.disabled = true;
   statusEl.style.color = "";
   statusEl.textContent = "Rendering…";
+  return { tape, btn, statusEl };
+}
 
+// ── Button 1: Signal-only stereo WAV (TD = L, BD = R) ─────────────────────
+async function exportSignalOnly() {
+  const g = _exportGuard("export-signal-btn");
+  if (!g) return;
+  const { tape, btn, statusEl } = g;
   try {
-    // Build character → TDM slot map for this tape's band
-    const bandKey = tape.band || currentBand;
-    const bandCfg = BAND_CONFIG[bandKey] || BAND_CONFIG[currentBand];
-    const bandChars = Object.values(bandCfg.characters).map((c) => c.name);
-    const slotMap = new Map();
-    bandChars.forEach((name, i) => {
-      if (i < 8) slotMap.set(name, i);
-    });
-
-    // Signal constants (Match Official RFE 4800 Baud v2.0 spec)
-    const SAMPLE_RATE = 48000;
-    const BITRATE = 4800;
-    const FRAME_RATE = 50;
-    const AMPLITUDE = 0.85;
-    const NOISE_LEVEL = 0.015;
-    const LOWPASS_HZ = 8000;
-    const VOLUME = currentPlaybackState.volume;
-    const FRAME_MS = 1000 / FRAME_RATE; // 20 ms
-    const bitsPerFrame = 12 * 8; // 96 bits spec
-    const samplesPerBit = SAMPLE_RATE / BITRATE;
-    const samplesPerFrame = Math.ceil(bitsPerFrame * samplesPerBit);
-    const scale = AMPLITUDE * VOLUME;
-
-    const durationMs = tape.duration;
-    const totalFrames = Math.ceil(durationMs / FRAME_MS);
-
-    // Inline BMC helpers (no AudioContext dependency)
-    function encodeBMCBits(bytes) {
-      const bits = [];
-      for (let i = 0; i < bytes.length; i++) {
-        const byte = bytes[i];
-        for (let b = 7; b >= 0; b--) bits.push((byte >> b) & 1);
-      }
-      return bits;
-    }
-
-    function makeBMCWave(bits) {
-      // Floating-point accumulator — same fix as cyberstar-signals.js to avoid
-      // per-bit rounding drift (Math.floor on products drifts; accumulator doesn't).
-      const w = new Float32Array(Math.round(bits.length * samplesPerBit));
-      let level = 1;
-      let sampleAccum = 0.0;
-      for (let bi = 0; bi < bits.length; bi++) {
-        const start = Math.round(sampleAccum);
-        sampleAccum += samplesPerBit;
-        const end = Math.round(sampleAccum);
-        const mid = (start + end) >> 1;
-        if (bits[bi] === 1) {
-          for (let i = start; i < mid; i++) w[i] = level;
-          level *= -1;
-          for (let i = mid; i < end; i++) w[i] = level;
-          level *= -1;
-        } else {
-          for (let i = start; i < end; i++) w[i] = level;
-          level *= -1;
-        }
-      }
-      if (NOISE_LEVEL > 0) {
-        for (let i = 0; i < w.length; i++) {
-          w[i] += (Math.random() - 0.5) * 2 * NOISE_LEVEL;
-          w[i] = Math.max(-1, Math.min(1, w[i]));
-        }
-      }
-      return w;
-    }
-
-    function lowpass(w) {
-      const rc = 1.0 / (2 * Math.PI * LOWPASS_HZ);
-      const alpha = 1 / SAMPLE_RATE / (rc + 1 / SAMPLE_RATE);
-      const f = new Float32Array(w.length);
-      f[0] = w[0];
-      for (let i = 1; i < w.length; i++)
-        f[i] = f[i - 1] + alpha * (w[i] - f[i - 1]);
-      return f;
-    }
-
-    // Pre-allocate dual-track bit buffers (12 bytes each = 96 bits per spec)
-    const trackTD = new Uint8Array(12);
-    const trackBD = new Uint8Array(12);
-
-    // Pre-allocate output (stereo interleaved: L=TD, R=BD)
-    const outL = new Float32Array(totalFrames * samplesPerFrame);
-    const outR = new Float32Array(totalFrames * samplesPerFrame);
-    let outOffset = 0;
-
-    const seqs = [...tape.sequences].sort((a, b) => a.time - b.time);
-    let seqIdx = 0;
-
-    for (let f = 0; f < totalFrames; f++) {
-      // Yield to browser every 200 frames to stay responsive
-      if (f % 200 === 0 && f > 0) {
-        statusEl.textContent = `Rendering… ${Math.round((f / totalFrames) * 100)}%`;
-        await new Promise((r) => setTimeout(r, 0));
-      }
-
-      const frameStartMs = f * FRAME_MS;
-      const frameEndMs = frameStartMs + FRAME_MS;
-
-      // Apply all sequences whose time falls inside this frame window
-      while (seqIdx < seqs.length && seqs[seqIdx].time < frameEndMs) {
-        const seq = seqs[seqIdx++];
-        if (seq.time < frameStartMs) continue;
-
-        // NEW format: character + movement + state (bitwise)
-        if (seq.character && seq.movement && typeof seq.state !== "undefined") {
-          const charEntry = CHARACTER_MOVEMENTS[seq.character];
-          if (charEntry) {
-            const m = charEntry.movements[seq.movement];
-            if (m) {
-              const buf = m.track === "TD" ? trackTD : trackBD;
-              const byteIdx = Math.floor(m.bit / 8);
-              const bitPos = 7 - (m.bit % 8);
-              if (seq.state) {
-                buf[byteIdx] |= 1 << bitPos;
-              } else {
-                buf[byteIdx] &= ~(1 << bitPos);
-              }
-            }
-          }
-        }
-        // LEGACY format: raw data bytes per slot
-        else if (seq.data && seq.character && seq.character !== "All") {
-          const slot = slotMap.get(seq.character);
-          if (slot !== undefined && slot < 8) {
-            // write data byte into the correct byte of trackTD
-            const byteIdx = slot % 12;
-            trackTD[byteIdx] = seq.data[seq.data.length - 1];
-          }
-        }
-      }
-
-      const hasActivity =
-        trackTD.some((b) => b !== 0) || trackBD.some((b) => b !== 0);
-
-      if (hasActivity) {
-        const waveL = lowpass(makeBMCWave(encodeBMCBits(trackTD)));
-        const waveR = lowpass(makeBMCWave(encodeBMCBits(trackBD)));
-        const len = Math.min(samplesPerFrame, outL.length - outOffset);
-        for (let i = 0; i < len; i++) {
-          outL[outOffset + i] = Math.max(
-            -1,
-            Math.min(1, (waveL[i] || 0) * scale),
-          );
-          outR[outOffset + i] = Math.max(
-            -1,
-            Math.min(1, (waveR[i] || 0) * scale),
-          );
-        }
-      }
-      // idle frames remain 0.0 (silence)
-
-      outOffset += samplesPerFrame;
-    }
-
-    statusEl.textContent = "Encoding 4-ch WAV (RetroMation)…";
+    const {
+      outL,
+      outR,
+      outOffset,
+      tape: t,
+      SAMPLE_RATE,
+    } = await _renderBMCFrames(tape, statusEl);
+    statusEl.textContent = "Encoding signal WAV…";
     await new Promise((r) => setTimeout(r, 0));
 
-    // ── Music channels: extract from decoded songBuffer if available ────────
-    // RetroMation channel layout: Ch1=Music L, Ch2=Music R, Ch3=TD, Ch4=BD
-    const musicLen = outOffset;
-    const musicL = new Float32Array(musicLen); // silence by default
-    const musicR = new Float32Array(musicLen);
-
-    if (songBuffer) {
-      // songBuffer was decoded via the same 48 kHz AudioContext — no resampling needed.
-      const srcL = songBuffer.getChannelData(0);
-      const srcR =
-        songBuffer.numberOfChannels > 1 ? songBuffer.getChannelData(1) : srcL; // mono source → duplicate to both channels
-      const copyLen = Math.min(musicLen, srcL.length);
-      musicL.set(srcL.subarray(0, copyLen));
-      musicR.set(srcR.subarray(0, copyLen));
+    const stereo = new Float32Array(outOffset * 2);
+    for (let i = 0; i < outOffset; i++) {
+      stereo[i * 2] = outL[i];
+      stereo[i * 2 + 1] = outR[i];
     }
+    const blob = encodeStereoWAV(stereo, SAMPLE_RATE);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${t.title.replace(/[^a-z0-9_\-]/gi, "_")}_signal.wav`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 15000);
 
-    // ── Assemble and encode 4-channel WAV ──────────────────────────────────
-    const wavBlob = encodeMultiChWAV(
+    statusEl.style.color = "#0f8";
+    statusEl.textContent = `\u2713 Downloaded: ${t.title} — signal-only stereo WAV`;
+  } catch (err) {
+    statusEl.style.color = "#f44";
+    statusEl.textContent = `\u2717 ${err.message}`;
+    console.error("Signal export error:", err);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── Button 2: 4-channel WAV (Music L, Music R, TD, BD) ────────────────────
+async function export4chWAV() {
+  const g = _exportGuard("export-4ch-btn");
+  if (!g) return;
+  const { tape, btn, statusEl } = g;
+  try {
+    const {
+      outL,
+      outR,
+      outOffset,
+      tape: t,
+      SAMPLE_RATE,
+    } = await _renderBMCFrames(tape, statusEl);
+    statusEl.textContent = "Encoding 4-ch WAV…";
+    await new Promise((r) => setTimeout(r, 0));
+
+    const { musicL, musicR } = _extractMusicChannels(outOffset);
+    const blob = encodeMultiChWAV(
       [
         musicL,
         musicR,
@@ -2012,33 +2047,84 @@ async function exportSignalWAV() {
       ],
       SAMPLE_RATE,
     );
-    // Choose RetroMation-native extension based on band selection
-    const showtapeExt = bandKey === "rock" ? "rshw" : "cshw";
-    const showtapeLabel = bandKey === "rock"
-      ? "Rock-afire Explosion (.rshw)"
-      : "Munch's Make Believe Band (.cshw)";
-
-    const url = URL.createObjectURL(wavBlob);
+    const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${tape.title.replace(/[^a-z0-9_\-]/gi, "_")}.${showtapeExt}`;
+    a.download = `${t.title.replace(/[^a-z0-9_\-]/gi, "_")}_4ch.wav`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 15000);
 
-    const musicNote = songBuffer
-      ? " + music"
-      : " (no music \u2014 data channels only)";
+    const musicNote = songBuffer ? " + music" : " (data channels only)";
     statusEl.style.color = "#0f8";
-    statusEl.textContent = `\u2713 Downloaded: ${tape.title} \u2014 ${showtapeLabel}${musicNote}`;
+    statusEl.textContent = `\u2713 Downloaded: ${t.title} — 4-ch WAV${musicNote}`;
   } catch (err) {
     statusEl.style.color = "#f44";
     statusEl.textContent = `\u2717 ${err.message}`;
-    console.error("WAV export error:", err);
+    console.error("4-ch WAV export error:", err);
   } finally {
     btn.disabled = false;
   }
+}
+
+// ── Button 3: RetroMation show file (.rshw for RFE / .cshw for MMBB) ──────
+async function exportShowFile() {
+  const g = _exportGuard("export-showtape-btn");
+  if (!g) return;
+  const { tape, btn, statusEl } = g;
+  try {
+    const {
+      outL,
+      outR,
+      outOffset,
+      bandKey,
+      tape: t,
+      SAMPLE_RATE,
+    } = await _renderBMCFrames(tape, statusEl);
+    statusEl.textContent = "Encoding show file…";
+    await new Promise((r) => setTimeout(r, 0));
+
+    const { musicL, musicR } = _extractMusicChannels(outOffset);
+    const blob = encodeMultiChWAV(
+      [
+        musicL,
+        musicR,
+        outL.subarray(0, outOffset),
+        outR.subarray(0, outOffset),
+      ],
+      SAMPLE_RATE,
+    );
+    const ext = bandKey === "rock" ? "rshw" : "cshw";
+    const label =
+      bandKey === "rock"
+        ? "Rock-afire Explosion (.rshw)"
+        : "Munch\u2019s Make Believe Band (.cshw)";
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${t.title.replace(/[^a-z0-9_\-]/gi, "_")}.${ext}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 15000);
+
+    const musicNote = songBuffer ? " + music" : " (data channels only)";
+    statusEl.style.color = "#0f8";
+    statusEl.textContent = `\u2713 Downloaded: ${t.title} — ${label}${musicNote}`;
+  } catch (err) {
+    statusEl.style.color = "#f44";
+    statusEl.textContent = `\u2717 ${err.message}`;
+    console.error("Show file export error:", err);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── (legacy stub kept for console compatibility) ───────────────────────────
+async function exportSignalWAV() {
+  return exportSignalOnly();
 }
 
 /**

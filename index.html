@@ -68,11 +68,25 @@
             <button id="pause-btn" class="btn">⏸ Pause</button>
             <button id="stop-btn" class="btn">⏹ Stop</button>
             <button
-              id="export-wav-btn"
+              id="export-signal-btn"
               class="btn"
-              title="Render and download a 4-channel RetroMation WAV (Music L, Music R, TD, BD)"
+              title="Render and download a stereo WAV containing only the BMC control signals (TD left, BD right)"
             >
-              📼 Export RetroMation WAV
+              📡 Export Signal WAV
+            </button>
+            <button
+              id="export-4ch-btn"
+              class="btn"
+              title="Render and download a 4-channel WAV (Music L, Music R, TD BMC, BD BMC)"
+            >
+              🎚️ Export 4-ch WAV
+            </button>
+            <button
+              id="export-showtape-btn"
+              class="btn"
+              title="Render and download a RetroMation showtape file (.rshw for Rock-afire / .cshw for MMBB)"
+            >
+              📼 Export Show File
             </button>
           </div>
           <div style="margin-top: 6px; font-size: 0.82em; opacity: 0.75">
