@@ -457,78 +457,104 @@ class CyberstarSignalGenerator {
    *   Ch 2 — Track TD (Treble/Top Drawer BMC signal)
    *   Ch 3 — Track BD (Bass/Bottom Drawer BMC signal)
    *
-   * The TD and BD data passed in should already contain the 1-second pilot
-   * tone prepended by _renderBMCFrames. Signal channels are clamped to ±0.8
-   * so digital decoders receive a clean, within-headroom square wave.
+   * Uses WAVE_FORMAT_EXTENSIBLE (0xFFFE) header — required for 4+ channel WAV
+   * files on Windows. A standard PCM header (0x0001) only supports 1-2 channels;
+   * STPE/RetroMation will "squash" a standard 4-ch file into stereo, mixing the
+   * data tracks into the audio channels and making the animatronics deaf.
+   *
+   * Signal channels are clamped to ±0.7 — the "sweet spot" where the STPE
+   * bit-stripper can read clean transitions without clipping distortion.
    *
    * @param {Float32Array} tdData   TD BMC signal (pilot + show frames)
    * @param {Float32Array} bdData   BD BMC signal (pilot + show frames)
    * @param {Float32Array} [musicL] Music left  (optional; silence if omitted)
    * @param {Float32Array} [musicR] Music right (optional; silence if omitted)
-   * @returns {Blob} 4-channel 48kHz 16-bit PCM WAV Blob
+   * @returns {Blob} 4-channel 48kHz 16-bit PCM WAV Blob (WAVE_FORMAT_EXTENSIBLE)
    */
   exportBroadcastWav(tdData, bdData, musicL, musicR) {
     const SAMPLE_RATE = 48000;
     const NUM_CHANNELS = 4;
     const BITS = 16;
-    // 0.95 gives decoders a strong, clean square wave while keeping
-    // a small safety margin below 0dBFS to prevent clipping on room-
-    // temperature DACs. 0.8 was too conservative and caused mis-decodes.
-    const SIGNAL_PEAK = 0.95;
+    // 0.7 is the STPE bit-stripper "sweet spot": strong enough to read reliably
+    // but with enough headroom that transitions don't clip and destroy timing.
+    const SIGNAL_PEAK = 0.7;
 
     const len = tdData.length;
     const mL = musicL || new Float32Array(len);
     const mR = musicR || new Float32Array(len);
-    const dataBytes = len * NUM_CHANNELS * (BITS / 8);
-    const byteRate = SAMPLE_RATE * NUM_CHANNELS * (BITS / 8);
-    const blockAlign = NUM_CHANNELS * (BITS / 8);
 
-    const buf = new ArrayBuffer(44 + dataBytes);
+    const blockAlign = NUM_CHANNELS * (BITS / 8);     // 8 bytes per sample-frame
+    const byteRate   = SAMPLE_RATE * blockAlign;       // 384000
+    const dataBytes  = len * blockAlign;
+
+    // ── WAVE_FORMAT_EXTENSIBLE layout ────────────────────────────────────────
+    // Standard WAV fmt chunk = 16 bytes.
+    // Extensible fmt chunk   = 40 bytes (adds cbSize, ValidBitsPerSample,
+    //                          ChannelMask, and SubFormat GUID).
+    //
+    // File layout:
+    //   [0]  RIFF chunk  12 bytes  ("RIFF" + size + "WAVE")
+    //   [12] fmt  chunk  48 bytes  ("fmt " + 40 + 40 bytes of fmt data)
+    //   [60] data chunk  8+N bytes ("data" + N + N bytes of PCM)
+    //   Total = 68 + dataBytes
+    //
+    // RIFF size field = total - 8 = 60 + dataBytes
+    const FMT_CHUNK_DATA_SIZE = 40; // extensible fmt payload (not counting id+size)
+    const HEADER_BYTES = 12 + 8 + FMT_CHUNK_DATA_SIZE + 8; // 68
+    const buf  = new ArrayBuffer(HEADER_BYTES + dataBytes);
     const view = new DataView(buf);
 
-    function writeStr(off, str) {
+    const writeStr = (off, str) => {
       for (let i = 0; i < str.length; i++)
         view.setUint8(off + i, str.charCodeAt(i));
-    }
-    function writeS16(off, f) {
+    };
+    const writeS16 = (off, f) => {
       const s = Math.max(-1, Math.min(1, f));
-      // Math.round prevents the systematic truncation error that could
-      // slightly round a square-wave transition in the wrong direction.
       view.setInt16(off, Math.round(s < 0 ? s * 0x8000 : s * 0x7fff), true);
-    }
+    };
 
-    // RIFF/WAVE header
+    // ── RIFF chunk ───────────────────────────────────────────────────────────
     writeStr(0, "RIFF");
-    view.setUint32(4, 36 + dataBytes, true);
+    view.setUint32(4, 60 + dataBytes, true);   // RIFF chunk size
     writeStr(8, "WAVE");
-    writeStr(12, "fmt ");
-    view.setUint32(16, 16, true); // PCM chunk size
-    view.setUint16(20, 1, true); // PCM format
-    view.setUint16(22, NUM_CHANNELS, true);
-    view.setUint32(24, SAMPLE_RATE, true);
-    view.setUint32(28, byteRate, true);
-    view.setUint16(32, blockAlign, true);
-    view.setUint16(34, BITS, true);
-    writeStr(36, "data");
-    view.setUint32(40, dataBytes, true);
 
-    // Interleave samples: [MusicL, MusicR, TD, BD, MusicL, MusicR, TD, BD, …]
-    let off = 44;
+    // ── fmt chunk (WAVE_FORMAT_EXTENSIBLE) ───────────────────────────────────
+    writeStr(12, "fmt ");
+    view.setUint32(16, FMT_CHUNK_DATA_SIZE, true); // fmt chunk data size = 40
+    view.setUint16(20, 0xFFFE, true);              // WAVE_FORMAT_EXTENSIBLE
+    view.setUint16(22, NUM_CHANNELS, true);        // nChannels = 4
+    view.setUint32(24, SAMPLE_RATE, true);         // nSamplesPerSec
+    view.setUint32(28, byteRate, true);            // nAvgBytesPerSec
+    view.setUint16(32, blockAlign, true);          // nBlockAlign
+    view.setUint16(34, BITS, true);                // wBitsPerSample = 16
+    view.setUint16(36, 22, true);                  // cbSize = 22 (extra bytes)
+    view.setUint16(38, BITS, true);                // wValidBitsPerSample = 16
+    // dwChannelMask: FL=0x1, FR=0x2, BL=0x10, BR=0x20 → 0x33
+    // Ch0=MusicL(FL), Ch1=MusicR(FR), Ch2=TD(BL), Ch3=BD(BR)
+    view.setUint32(40, 0x00000033, true);          // dwChannelMask
+    // SubFormat GUID: KSDATAFORMAT_SUBTYPE_PCM
+    // {00000001-0000-0010-8000-00AA00389B71}
+    const pcmGuid = [
+      0x01,0x00,0x00,0x00, // Data1
+      0x00,0x00,           // Data2
+      0x10,0x00,           // Data3
+      0x80,0x00,           // Data4[0-1]
+      0x00,0xAA,0x00,0x38,0x9B,0x71, // Data4[2-7]
+    ];
+    for (let i = 0; i < 16; i++) view.setUint8(44 + i, pcmGuid[i]);
+
+    // ── data chunk ───────────────────────────────────────────────────────────
+    writeStr(60, "data");
+    view.setUint32(64, dataBytes, true);
+
+    // Interleave: [MusicL, MusicR, TD, BD] per sample-frame
+    let off = 68;
     for (let i = 0; i < len; i++) {
-      writeS16(off, mL[i] || 0);
-      off += 2; // Ch0 Music L
-      writeS16(off, mR[i] || 0);
-      off += 2; // Ch1 Music R
-      writeS16(
-        off,
-        Math.max(-SIGNAL_PEAK, Math.min(SIGNAL_PEAK, tdData[i] || 0)),
-      );
-      off += 2; // Ch2 TD
-      writeS16(
-        off,
-        Math.max(-SIGNAL_PEAK, Math.min(SIGNAL_PEAK, bdData[i] || 0)),
-      );
-      off += 2; // Ch3 BD
+      writeS16(off,     mL[i] || 0);                                              // Ch0 Music L
+      writeS16(off + 2, mR[i] || 0);                                              // Ch1 Music R
+      writeS16(off + 4, Math.max(-SIGNAL_PEAK, Math.min(SIGNAL_PEAK, tdData[i] || 0))); // Ch2 TD
+      writeS16(off + 6, Math.max(-SIGNAL_PEAK, Math.min(SIGNAL_PEAK, bdData[i] || 0))); // Ch3 BD
+      off += 8;
     }
 
     return new Blob([buf], { type: "audio/wav" });
