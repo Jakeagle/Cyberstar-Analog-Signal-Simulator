@@ -2418,11 +2418,46 @@ async function stLoadFile(file) {
 }
 
 /**
+ * Switch the main app to a given band — updates monitors, LED grid, and the
+ * header band selector so everything reflects the Signal Tester's band choice.
+ */
+function stSwitchBand(band) {
+  if (!BAND_CONFIG[band]) return;
+  currentBand = band;
+  const bandConfig = BAND_CONFIG[currentBand];
+
+  // Sync the top-level band selector
+  const mainSelect = document.getElementById("band-select");
+  if (mainSelect) mainSelect.value = currentBand;
+
+  // Update section title and character monitor visibility
+  const titleEl = document.getElementById("band-title");
+  if (titleEl) titleEl.textContent = `${bandConfig.title} - Signal Monitors`;
+
+  const munchEl = document.getElementById("munch-band");
+  const rockEl = document.getElementById("rock-band");
+  if (munchEl)
+    munchEl.style.display = currentBand === "munch" ? "grid" : "none";
+  if (rockEl) rockEl.style.display = currentBand === "rock" ? "grid" : "none";
+
+  clearAllMonitors();
+  setupCurrentBandSlots(); // rebuilds LED grid slot assignments for this band
+
+  // If stage is open, rebuild it for the new band
+  const stageModal = document.getElementById("stage-modal");
+  if (stageModal && stageModal.classList.contains("active")) buildStageArena();
+}
+
+/**
  * Start (or resume) signal tester playback.
  */
 function stPlay() {
   if (stState.frames.length === 0) return;
   if (stState.isPlaying) return;
+
+  // Switch monitors & LED grid to whichever band the user selected
+  const bandSel = document.getElementById("st-band-select");
+  if (bandSel) stSwitchBand(bandSel.value);
 
   // Restart from beginning if tape is at the end
   if (stState.currentFrame >= stState.totalFrames - 1) {

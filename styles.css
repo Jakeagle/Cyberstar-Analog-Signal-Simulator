@@ -1240,6 +1240,54 @@ h1 {
 
 /* ── Signal Tester ─────────────────────────────────────────────────────── */
 
+.st-band-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  background: rgba(0, 212, 255, 0.05);
+  border: 1px solid rgba(0, 212, 255, 0.25);
+  border-radius: 6px;
+}
+
+.st-band-label {
+  display: inline;
+  margin-bottom: 0;
+  color: #00d4ff;
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.85em;
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+
+.st-band-select {
+  width: auto;
+  min-width: 220px;
+  padding: 8px 12px;
+  margin-bottom: 0;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid #00d4ff;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 0.95em;
+  cursor: pointer;
+}
+
+.st-band-select:focus {
+  outline: none;
+  border-color: #00ffff;
+  box-shadow: 0 0 10px rgba(0, 212, 255, 0.25);
+}
+
+.st-band-hint {
+  font-size: 0.8em;
+  color: #607888;
+  font-style: italic;
+}
+
 .st-file-row {
   display: flex;
   align-items: center;
