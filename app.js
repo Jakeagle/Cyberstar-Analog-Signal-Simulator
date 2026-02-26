@@ -1893,15 +1893,21 @@ async function _renderBMCFrames(tape, statusEl) {
     return w;
   }
 
+  // RAE Framing: byte 0 of every 12-byte TDM frame MUST be 0xFF as the
+  // sync marker. The STPE decoder uses this pattern to locate frame boundaries.
+  // Character control data occupies bytes 1-11 (bits offset by +1 byte).
+  // Byte 0 is never modified by character state — it is always 0xFF.
   const trackTD = new Uint8Array(12);
   const trackBD = new Uint8Array(12);
+  trackTD[0] = 0xFF;
+  trackBD[0] = 0xFF;
+
   const outL = new Float32Array(PILOT_SAMPLES + totalFrames * samplesPerFrame);
   const outR = new Float32Array(PILOT_SAMPLES + totalFrames * samplesPerFrame);
 
-  // Prepend pilot tone to both channels.
-  // Scale pilot by the same factor as show frames so the decoder sees
-  // a consistent amplitude throughout (pilot at ±1.0, clamped to ±0.95
-  // by exportBroadcastWav — identical to show frame amplitude).
+  // Prepend pilot tone to TD and BD channels.
+  // Music L/R channels keep zeros (silence) for this region — the decoder
+  // needs the pilot period to be data-only with no music overlay.
   const pilot = makePilotTone();
   for (let i = 0; i < pilot.length; i++) pilot[i] *= scale;
   outL.set(pilot);
@@ -1930,7 +1936,12 @@ async function _renderBMCFrames(tape, statusEl) {
           const m = charEntry.movements[seq.movement];
           if (m) {
             const buf = m.track === "TD" ? trackTD : trackBD;
-            const byteIdx = Math.floor(m.bit / 8);
+            // +1 byte offset: byte 0 is the 0xFF RAE sync byte.
+            // Character bit indices 0-87 map to bytes 1-11 of the frame.
+            // Bits 88-95 (lighting specials only) exceed the 11 data bytes
+            // available and are safely skipped.
+            const byteIdx = Math.floor(m.bit / 8) + 1;
+            if (byteIdx >= 12) continue; // out of frame bounds — skip
             const bitPos = m.bit % 8; // LSB-first
             if (seq.state) buf[byteIdx] |= 1 << bitPos;
             else buf[byteIdx] &= ~(1 << bitPos);
@@ -1938,12 +1949,14 @@ async function _renderBMCFrames(tape, statusEl) {
         }
       } else if (seq.data && seq.character && seq.character !== "All") {
         const slot = slotMap.get(seq.character);
-        if (slot !== undefined && slot < 8)
-          trackTD[slot % 12] = seq.data[seq.data.length - 1];
+        // +1 byte offset for RAE sync byte; keep byte 0 = 0xFF
+        if (slot !== undefined && slot < 11)
+          trackTD[slot + 1] = seq.data[seq.data.length - 1];
       }
     }
 
-    // Always emit raw 12-byte frames (no hasActivity guard, no headers, no filter)
+    // Emit one 12-byte RAE frame per show frame:
+    //   byte 0 = 0xFF sync, bytes 1-11 = character data
     const waveL = makeBMCWave(encodeBMCBits(trackTD));
     const waveR = makeBMCWave(encodeBMCBits(trackBD));
     const len = Math.min(samplesPerFrame, outL.length - outOffset);
@@ -1954,20 +1967,28 @@ async function _renderBMCFrames(tape, statusEl) {
     outOffset += samplesPerFrame;
   }
 
-  return { outL, outR, outOffset, bandKey, tape, SAMPLE_RATE };
+  return { outL, outR, outOffset, PILOT_SAMPLES, bandKey, tape, SAMPLE_RATE };
 }
 
-// Extract music L/R from the cached songBuffer, aligned to `len` frames
-function _extractMusicChannels(len) {
-  const musicL = new Float32Array(len);
+// Extract music L/R from the cached songBuffer, aligned to `len` frames.
+// pilotSamples: number of samples to leave silent at the start of each
+// music channel — matching the pilot tone duration on the data channels.
+// The music must NOT play during the pilot period; STPE/RAE decoders use
+// that first second to lock their clock and find frame sync.
+function _extractMusicChannels(len, pilotSamples) {
+  const musicL = new Float32Array(len); // zero-filled = silence
   const musicR = new Float32Array(len);
   if (songBuffer) {
     const srcL = songBuffer.getChannelData(0);
     const srcR =
       songBuffer.numberOfChannels > 1 ? songBuffer.getChannelData(1) : srcL;
-    const copyLen = Math.min(len, srcL.length);
-    musicL.set(srcL.subarray(0, copyLen));
-    musicR.set(srcR.subarray(0, copyLen));
+    // Write music starting at pilotSamples offset so the pilot region stays silent
+    const offset = pilotSamples || 0;
+    const copyLen = Math.min(len - offset, srcL.length);
+    if (copyLen > 0) {
+      musicL.set(srcL.subarray(0, copyLen), offset);
+      musicR.set(srcR.subarray(0, copyLen), offset);
+    }
   }
   return { musicL, musicR };
 }
@@ -2042,13 +2063,14 @@ async function export4chWAV() {
       outL,
       outR,
       outOffset,
+      PILOT_SAMPLES: pilotSamples,
       tape: t,
     } = await _renderBMCFrames(tape, statusEl);
     statusEl.textContent = "Encoding 4-ch broadcast WAV…";
     await new Promise((r) => setTimeout(r, 0));
 
-    const { musicL, musicR } = _extractMusicChannels(outOffset);
-    // Route through exportBroadcastWav: correct 4-ch layout + ±0.8 amplitude cap
+    const { musicL, musicR } = _extractMusicChannels(outOffset, pilotSamples);
+    // Route through exportBroadcastWav: correct 4-ch layout + ±0.95 amplitude cap
     const blob = signalGenerator.exportBroadcastWav(
       outL.subarray(0, outOffset),
       outR.subarray(0, outOffset),
@@ -2088,14 +2110,15 @@ async function exportShowFile() {
       outL,
       outR,
       outOffset,
+      PILOT_SAMPLES: pilotSamples,
       bandKey,
       tape: t,
     } = await _renderBMCFrames(tape, statusEl);
     statusEl.textContent = "Encoding show file…";
     await new Promise((r) => setTimeout(r, 0));
 
-    const { musicL, musicR } = _extractMusicChannels(outOffset);
-    // exportBroadcastWav: STPE-compatible 4-ch layout, ±0.8 amplitude
+    const { musicL, musicR } = _extractMusicChannels(outOffset, pilotSamples);
+    // exportBroadcastWav: STPE-compatible 4-ch layout, ±0.95 amplitude
     const blob = signalGenerator.exportBroadcastWav(
       outL.subarray(0, outOffset),
       outR.subarray(0, outOffset),
