@@ -2213,175 +2213,362 @@ async function exportSignalWAV() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Signal Tester — load exported WAVs and replay through the live simulator
+// Signal Tester — Analog Signal Forensic Engine v3.0
+// Handles archival recordings with tape hiss, DC offset, wow/flutter, and
+// harmonic distortion using adaptive edge detection + clock recovery.
+//
 // Accepts:  2-channel signal-only WAV  (L = TD, R = BD)
 //           4-channel broadcast WAV    (ch0 = Music L, ch1 = Music R,
 //                                       ch2 = TD, ch3 = BD)
 // ═════════════════════════════════════════════════════════════════════════════
 
+// ─── Phase 1: Signal Conditioning ───────────────────────────────────────────
 /**
- * Decode BMC bits from a Float32Array audio channel.
- * SPB = samples-per-bit (10 at 48 kHz / 4800 bps).
- * Compare the first vs second half of each bit window:
- *   – different polarity  → mid-bit transition occurred → bit = 1
- *   – same polarity       → no mid-bit transition       → bit = 0
+ * Clean a raw audio channel for BMC extraction.
+ *   1. DC offset removal   — centres the waveform on 0.0
+ *   2. Band-pass filter    — 2nd-order Butterworth HP @ 1500 Hz cascaded with
+ *                            2nd-order Butterworth LP @ 12 000 Hz (biquad IIR)
+ *                            Kills motor hum below 1.5 kHz and hiss above 12 kHz.
+ *   3. AGC                 — normalises peak amplitude to −3 dBFS (≈ 0.707)
+ *   4. Schmitt trigger     — hysteresis squaring: > +0.3 → +1, < −0.3 → −1,
+ *                            in between → hold previous state (eliminates chatter)
+ *
+ * Returns an Int8Array of +1 / 0 / −1 values.
  */
-function stDecodeBMCBits(channel, startSample, SPB) {
-  const half = SPB >> 1;
-  const totalBits = Math.floor((channel.length - startSample) / SPB);
-  const bits = new Uint8Array(totalBits);
+function stPreprocessSignal(channel, SR) {
+  const len = channel.length;
+  const buf = new Float32Array(len);
 
-  for (let i = 0; i < totalBits; i++) {
-    const s = startSample + i * SPB;
-    let firstSum = 0,
-      secondSum = 0;
-    for (let k = 0; k < half; k++) firstSum += channel[s + k];
-    for (let k = half; k < SPB; k++) secondSum += channel[s + k];
-    // Treat near-zero sums as ambiguous (noise floor) — default to 0
-    const SIG = 0.02 * SPB;
-    if (Math.abs(firstSum) < SIG && Math.abs(secondSum) < SIG) {
-      bits[i] = 0;
+  // 1. DC offset removal
+  let dcSum = 0;
+  for (let i = 0; i < len; i++) dcSum += channel[i];
+  const dc = dcSum / len;
+  for (let i = 0; i < len; i++) buf[i] = channel[i] - dc;
+
+  // 2a. High-pass biquad — Butterworth @ 1500 Hz (kills motor hum)
+  {
+    const w0 = (2 * Math.PI * 1500) / SR;
+    const cosW = Math.cos(w0);
+    const alpha = Math.sin(w0) / (2 * Math.SQRT2); // Q = √2
+    const a0 = 1 + alpha;
+    const B0 = (1 + cosW) / 2 / a0;
+    const B1 = -(1 + cosW) / a0;
+    const B2 = B0;
+    const A1 = (-2 * cosW) / a0;
+    const A2 = (1 - alpha) / a0;
+    let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    for (let i = 0; i < len; i++) {
+      const x0 = buf[i];
+      const y0 = B0 * x0 + B1 * x1 + B2 * x2 - A1 * y1 - A2 * y2;
+      x2 = x1; x1 = x0; y2 = y1; y1 = y0;
+      buf[i] = y0;
+    }
+  }
+
+  // 2b. Low-pass biquad — Butterworth @ 12 000 Hz (kills tape hiss)
+  {
+    const w0 = (2 * Math.PI * 12000) / SR;
+    const cosW = Math.cos(w0);
+    const alpha = Math.sin(w0) / (2 * Math.SQRT2);
+    const a0 = 1 + alpha;
+    const B0 = (1 - cosW) / 2 / a0;
+    const B1 = (1 - cosW) / a0;
+    const B2 = B0;
+    const A1 = (-2 * cosW) / a0;
+    const A2 = (1 - alpha) / a0;
+    let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    for (let i = 0; i < len; i++) {
+      const x0 = buf[i];
+      const y0 = B0 * x0 + B1 * x1 + B2 * x2 - A1 * y1 - A2 * y2;
+      x2 = x1; x1 = x0; y2 = y1; y1 = y0;
+      buf[i] = y0;
+    }
+  }
+
+  // 3. AGC — peak normalise to −3 dBFS (0.707)
+  let peak = 0;
+  for (let i = 0; i < len; i++) { const a = Math.abs(buf[i]); if (a > peak) peak = a; }
+  if (peak > 0.001) {
+    const gain = 0.707 / peak;
+    for (let i = 0; i < len; i++) buf[i] *= gain;
+  }
+
+  // 4. Schmitt trigger — hysteresis squaring
+  const HI = 0.3, LO = -0.3;
+  const squared = new Int8Array(len);
+  let state = 0;
+  for (let i = 0; i < len; i++) {
+    if      (buf[i] >  HI) state =  1;
+    else if (buf[i] <  LO) state = -1;
+    // else: inside dead-band — hold previous state (hysteresis)
+    squared[i] = state;
+  }
+  return squared;
+}
+
+// ─── Phase 2: Adaptive Clock Recovery ────────────────────────────────────────
+/**
+ * Extract BMC bits from a Schmitt-squared signal using adaptive edge timing.
+ *
+ * Instead of sampling at fixed 10-sample intervals, we:
+ *   • Find every polarity transition (edge).
+ *   • Measure the interval between successive edges.
+ *   • Classify intervals relative to a live clock estimate:
+ *       half-bit  (30–70%  of clockEst)  → waits for its pair → logical 1
+ *       full-bit  (70–140% of clockEst)  → logical 0
+ *   • Update clockEst from a rolling average of the last 100 pulse widths
+ *     so the decoder follows tape speed drift (wow & flutter).
+ *
+ * Returns Uint8Array of raw bits.
+ */
+function stExtractBitsAdaptive(squared, SR) {
+  const NOMINAL_SPB  = SR / 4800;   // 10 samples @ 48 kHz / 4800 bps
+  const HISTORY_MAX  = 100;         // pulse widths to keep for clock averaging
+  const HALF_LO = 0.30, HALF_HI = 0.70;   // fraction of clockEst = half-bit
+  const FULL_LO = 0.70, FULL_HI = 1.40;   // fraction of clockEst = full-bit
+
+  // Collect all polarity-transition sample indices
+  const edges = [];
+  let prev = squared[0];
+  for (let i = 1; i < squared.length; i++) {
+    if (squared[i] !== 0 && squared[i] !== prev) {
+      if (prev !== 0) edges.push(i);
+      prev = squared[i];
+    }
+  }
+  if (edges.length < 4) return new Uint8Array(0);
+
+  const bits        = [];
+  const history     = [];
+  let   clockEst    = NOMINAL_SPB;
+  let   halfPending = false; // true after one half-bit, waiting for its pair
+
+  for (let e = 1; e < edges.length; e++) {
+    const interval = edges[e] - edges[e - 1];
+    const ratio    = interval / clockEst;
+
+    const isHalf = ratio >= HALF_LO && ratio <= HALF_HI;
+    const isFull = ratio >= FULL_LO && ratio <= FULL_HI;
+
+    if (!isHalf && !isFull) {
+      // Anomalous interval (dropout or splice) — discard pending half and skip
+      halfPending = false;
       continue;
     }
-    bits[i] = firstSum > 0 !== secondSum > 0 ? 1 : 0;
-  }
-  return bits;
-}
 
-/**
- * Convert a flat bit array (LSB-first, matching BMC encoding) into bytes.
- */
-function stBitsToBytes(bits, bitOffset, numBytes) {
-  const bytes = new Uint8Array(numBytes);
-  for (let b = 0; b < numBytes; b++) {
-    let val = 0;
-    for (let bit = 0; bit < 8; bit++) {
-      const idx = bitOffset + b * 8 + bit;
-      if (idx < bits.length) val |= (bits[idx] & 1) << bit;
-    }
-    bytes[b] = val;
-  }
-  return bytes;
-}
+    // Update adaptive clock (normalise half-bit intervals to full-bit equivalent)
+    history.push(isFull ? interval : interval * 2);
+    if (history.length > HISTORY_MAX) history.shift();
+    let sum = 0;
+    for (let k = 0; k < history.length; k++) sum += history[k];
+    clockEst = sum / history.length;
 
-/**
- * Find the first frame-aligned bit position where:
- *   byte 0 = 0xFF (RAE sync byte)  AND  at least one subsequent byte ≠ 0xFF
- * This skips the pilot tone (which is all-1 bits) and lands on real data.
- * Falls back to the first 0xFF byte position if no data frame is found.
- */
-function stFindFrameSync(bits) {
-  const BITS_PER_FRAME = 96;
-  let firstFF = -1;
-
-  for (let i = 0; i <= bits.length - BITS_PER_FRAME; i++) {
-    // Check for 0xFF sync byte (8 consecutive 1-bits)
-    let allOne = true;
-    for (let b = 0; b < 8; b++) {
-      if (!bits[i + b]) {
-        allOne = false;
-        break;
+    if (isFull) {
+      halfPending = false;
+      bits.push(0);
+    } else {
+      // half-bit
+      if (halfPending) {
+        bits.push(1); // second half of a BMC '1' pulse pair
+        halfPending = false;
+      } else {
+        halfPending = true; // first half — wait for partner
       }
     }
-    if (!allOne) continue;
-    if (firstFF === -1) firstFF = i; // record earliest 0xFF position
+  }
 
-    // Verify at least one data byte is not 0xFF (= we are past the pilot)
+  return new Uint8Array(bits);
+}
+
+// ─── Phase 3 + 4: Sync Hunter, Frame Chunker, Validation & Re-synthesis ─────
+/**
+ * Scan a raw bit array for 0xFF sync bytes and chunk into 12-byte RAE frames.
+ *
+ * •  Hunts forward for 8 consecutive 1-bits (0xFF = RAE Start-of-Frame).
+ * •  Skips any all-0xFF pilot region so it lands on real show data.
+ * •  Reads 12 bytes per frame (96 bits); validates the frame boundary by
+ *    checking that the next frame also starts with 0xFF.
+ * •  On bad boundaries: triggers Resync Mode — jumps to the next 0xFF
+ *    to prevent cascading "Crazy Bits" corruption.
+ *
+ * Returns { frames: Uint8Array(12)[], goodFrames, resyncs }
+ */
+function stResyncAndBuildFrames(rawBits) {
+  const BITS_PER_FRAME = 96; // 12 bytes × 8 bits
+  const frames   = [];
+  let goodFrames = 0, resyncs  = 0;
+
+  // Read one byte (LSB-first) from rawBits at position pos; returns −1 if OOB
+  function readByte(pos) {
+    if (pos + 8 > rawBits.length) return -1;
+    let v = 0;
+    for (let b = 0; b < 8; b++) v |= (rawBits[pos + b] & 1) << b;
+    return v;
+  }
+
+  // Find the next 0xFF byte (8 consecutive 1-bits) starting at `from`
+  function findNextSync(from) {
+    for (let s = from; s <= rawBits.length - 8; s++) {
+      let ok = true;
+      for (let b = 0; b < 8; b++) { if (!rawBits[s + b]) { ok = false; break; } }
+      if (ok) return s;
+    }
+    return -1;
+  }
+
+  // Locate first sync and advance past the all-0xFF pilot tone region
+  let i = findNextSync(0);
+  if (i < 0) return { frames: [], goodFrames: 0, resyncs: 0 };
+
+  while (i >= 0) {
     let hasData = false;
-    for (let byteIdx = 1; byteIdx < 12; byteIdx++) {
-      let byteAllOne = true;
-      for (let b = 0; b < 8; b++) {
-        if (!bits[i + byteIdx * 8 + b]) {
-          byteAllOne = false;
-          break;
-        }
-      }
-      if (!byteAllOne) {
-        hasData = true;
-        break;
-      }
+    for (let bIdx = 1; bIdx < 12; bIdx++) {
+      if (readByte(i + bIdx * 8) !== 0xFF) { hasData = true; break; }
     }
-    if (hasData) return i; // first real data frame
+    if (hasData) break; // found first data-bearing frame
+    i = findNextSync(i + 8);
   }
-  return firstFF >= 0 ? firstFF : 0; // fallback: first 0xFF or bit 0
+  if (i < 0) return { frames: [], goodFrames: 0, resyncs: 0 };
+
+  // ── Main frame loop ──────────────────────────────────────────────────────
+  while (i + BITS_PER_FRAME <= rawBits.length) {
+    if (readByte(i) !== 0xFF) {
+      // Lost sync — hunt for the next 0xFF (Resync Mode)
+      const ns = findNextSync(i + 1);
+      if (ns < 0) break;
+      i = ns;
+      resyncs++;
+      continue;
+    }
+
+    // Read 12-byte frame
+    const frame = new Uint8Array(12);
+    let valid = true;
+    for (let byteIdx = 0; byteIdx < 12; byteIdx++) {
+      const b = readByte(i + byteIdx * 8);
+      if (b < 0) { valid = false; break; }
+      frame[byteIdx] = b;
+    }
+    if (!valid) break;
+
+    // Frame validation: next frame must also start with 0xFF (or be the last frame)
+    const nextStart = i + BITS_PER_FRAME;
+    if (nextStart + 8 <= rawBits.length && readByte(nextStart) !== 0xFF) {
+      // Bad boundary — resync
+      const ns = findNextSync(i + 1);
+      if (ns < 0) break;
+      i = ns;
+      resyncs++;
+      continue;
+    }
+
+    frames.push(frame);
+    goodFrames++;
+    i += BITS_PER_FRAME;
+  }
+
+  return { frames, goodFrames, resyncs };
 }
 
+// ─── stLoadFile: full forensic pipeline orchestrator ─────────────────────────
 /**
- * Load and BMC-decode a WAV file for the signal tester.
- * Automatically detects 2-channel (signal-only) vs ≥4-channel (broadcast).
+ * Load a signal or broadcast WAV through the 4-phase forensic engine:
+ *   Phase 1 — Signal Conditioning  (DC removal, band-pass, AGC, Schmitt)
+ *   Phase 2 — Adaptive Clock Recovery (edge-triggered, wow/flutter-tolerant)
+ *   Phase 3 — Sync Hunt + Frame Validation + Resync Mode
+ *   Phase 4 — Re-synthesis (frames feed the live BMC generator on playback)
  */
 async function stLoadFile(file) {
   const statusEl = document.getElementById("st-status");
-  const nameEl = document.getElementById("st-file-name");
-  const badge = document.getElementById("st-format-badge");
+  const nameEl   = document.getElementById("st-file-name");
+  const badge    = document.getElementById("st-format-badge");
   const controls = document.getElementById("st-controls");
-  const playBtn = document.getElementById("st-play-btn");
-  const stopBtn = document.getElementById("st-stop-btn");
+  const playBtn  = document.getElementById("st-play-btn");
+  const stopBtn  = document.getElementById("st-stop-btn");
 
-  stStop(); // halt any existing playback
+  stStop();
   stState.frames = [];
   stState.musicBuffer = null;
   stState.is4ch = false;
 
   nameEl.textContent = file.name;
-  badge.style.display = "none";
+  badge.style.display   = "none";
   controls.style.display = "none";
   if (playBtn) playBtn.disabled = true;
   if (stopBtn) stopBtn.disabled = true;
   statusEl.style.color = "";
-  statusEl.textContent = "Decoding audio…";
+  statusEl.textContent = "Reading file…";
 
   try {
     const arrayBuffer = await file.arrayBuffer();
     const ac = signalGenerator.audioContext;
     if (ac.state === "suspended") await ac.resume();
 
-    // decodeAudioData resamples to the context's native rate (48 kHz).
     const audioBuffer = await ac.decodeAudioData(arrayBuffer);
     const numCh = audioBuffer.numberOfChannels;
-    const SR = audioBuffer.sampleRate;
-    const SPB = Math.round(SR / 4800); // 10 at 48 kHz / 4800 bps
+    const SR    = audioBuffer.sampleRate;
 
     const is4ch = numCh >= 4;
     stState.is4ch = is4ch;
 
-    // Select signal channels
+    // Select signal channels based on file format
     const tdChan = audioBuffer.getChannelData(is4ch ? 2 : 0);
-    const bdChan = audioBuffer.getChannelData(is4ch ? 3 : numCh > 1 ? 1 : 0);
+    const bdChan = audioBuffer.getChannelData(is4ch ? 3 : (numCh > 1 ? 1 : 0));
 
-    statusEl.textContent = `${numCh}ch @ ${SR} Hz — locating frame sync…`;
-    await new Promise((r) => setTimeout(r, 0)); // yield to browser
-
-    // Decode all TD bits to find the sync position
-    const tdBitsAll = stDecodeBMCBits(tdChan, 0, SPB);
-    const syncBit = stFindFrameSync(tdBitsAll);
-    const syncSample = syncBit * SPB;
-
-    statusEl.textContent = `Frame sync at bit ${syncBit}. Decoding frames…`;
+    // ── Phase 1: Signal Conditioning ───────────────────────────────────────
+    statusEl.textContent = `Phase 1 — Signal conditioning (DC, band-pass, AGC, Schmitt)…`;
     await new Promise((r) => setTimeout(r, 0));
 
-    const tdBits = tdBitsAll.slice(syncBit);
-    const bdBits = stDecodeBMCBits(bdChan, syncSample, SPB);
+    const tdSquared = stPreprocessSignal(tdChan, SR);
+    const bdSquared = stPreprocessSignal(bdChan, SR);
 
-    const BITS_PER_FRAME = 96;
-    const totalFrames = Math.floor(
-      Math.min(tdBits.length, bdBits.length) / BITS_PER_FRAME,
-    );
+    // ── Phase 2: Adaptive Clock Recovery ───────────────────────────────────
+    statusEl.textContent = "Phase 2 — Adaptive clock recovery (wow/flutter correction)…";
+    await new Promise((r) => setTimeout(r, 0));
+
+    const tdRawBits = stExtractBitsAdaptive(tdSquared, SR);
+    const bdRawBits = stExtractBitsAdaptive(bdSquared, SR);
+
+    if (tdRawBits.length < 96) {
+      throw new Error(
+        `Too few bits extracted from TD channel (${tdRawBits.length}). ` +
+        "Check that the file contains a valid BMC signal."
+      );
+    }
+
+    // ── Phase 3: Sync Hunt + Frame Validation ──────────────────────────────
+    statusEl.textContent = "Phase 3 — Sync hunting & frame validation…";
+    await new Promise((r) => setTimeout(r, 0));
+
+    const tdResult = stResyncAndBuildFrames(tdRawBits);
+    const bdResult = stResyncAndBuildFrames(bdRawBits);
+
+    if (tdResult.goodFrames === 0) {
+      throw new Error(
+        "No valid RAE frames found in the TD channel. " +
+        "Ensure the file was exported from this simulator or a compatible source."
+      );
+    }
+
+    // ── Phase 4: Re-synthesis — zip TD + BD frames ─────────────────────────
+    // Pair up the two tracks; if BD has fewer frames, pad with a zero frame.
+    const totalFrames = tdResult.frames.length;
+    const emptyBD     = new Uint8Array(12); // silent fill if BD is shorter
+    emptyBD[0]        = 0xFF;               // keep sync byte intact
+
     const frames = [];
-
     for (let f = 0; f < totalFrames; f++) {
-      const off = f * BITS_PER_FRAME;
       frames.push({
-        td: stBitsToBytes(tdBits, off, 12),
-        bd: stBitsToBytes(bdBits, off, 12),
+        td: tdResult.frames[f],
+        bd: bdResult.frames[f] || emptyBD,
       });
     }
 
-    stState.frames = frames;
-    stState.totalFrames = totalFrames;
+    stState.frames          = frames;
+    stState.totalFrames     = totalFrames;
     stState.totalDurationMs = Math.round((totalFrames / 50) * 1000);
 
-    // For 4ch files, cache the music channels for playback
+    // Cache music channels for 4-ch broadcast files
     if (is4ch && numCh >= 2) {
       const musicBuf = ac.createBuffer(2, audioBuffer.length, SR);
       musicBuf.copyToChannel(audioBuffer.getChannelData(0), 0);
@@ -2389,15 +2576,19 @@ async function stLoadFile(file) {
       stState.musicBuffer = musicBuf;
     }
 
-    // Detect and describe format
+    // ── Report ──────────────────────────────────────────────────────────────
     const fmtLabel = is4ch
       ? "4-CHANNEL BROADCAST  ·  Music L / Music R / TD / BD"
       : numCh >= 2
-        ? "SIGNAL ONLY  ·  Stereo  ·  TD left  /  BD right"
+        ? "SIGNAL ONLY  ·  Stereo  ·  TD left / BD right"
         : "SIGNAL ONLY  ·  Mono  ·  TD only";
 
-    badge.textContent = fmtLabel;
-    badge.className = `st-format-badge ${is4ch ? "badge-4ch" : "badge-2ch"}`;
+    const resyncNote = (tdResult.resyncs + bdResult.resyncs) > 0
+      ? `  ·  ⚠ ${tdResult.resyncs + bdResult.resyncs} resyncs (tape artifacts corrected)`
+      : "  ·  ✓ Clean decode";
+
+    badge.textContent  = fmtLabel;
+    badge.className    = `st-format-badge ${is4ch ? "badge-4ch" : "badge-2ch"}`;
     badge.style.display = "block";
     controls.style.display = "block";
     if (playBtn) playBtn.disabled = false;
@@ -2405,15 +2596,18 @@ async function stLoadFile(file) {
 
     stUpdateProgress(0);
     statusEl.style.color = "#0f8";
-    statusEl.textContent = `✓ ${totalFrames} frames decoded  ·  ${formatTime(stState.totalDurationMs)}  ·  ${fmtLabel}`;
+    statusEl.textContent =
+      `✓ ${totalFrames} frames decoded  ·  ${formatTime(stState.totalDurationMs)}${resyncNote}`;
 
     updateSignalMonitor(
-      `Signal Tester: loaded "${file.name}" — ${totalFrames} frames  (${fmtLabel})`,
+      `Forensic Engine: "${file.name}" — ` +
+      `${totalFrames} frames, ` +
+      `TD ${tdResult.resyncs} resyncs, BD ${bdResult.resyncs} resyncs  (${fmtLabel})`
     );
   } catch (err) {
     statusEl.style.color = "#f44";
     statusEl.textContent = `✗ ${err.message}`;
-    console.error("Signal Tester decode error:", err);
+    console.error("Signal Tester forensic decode error:", err);
   }
 }
 
