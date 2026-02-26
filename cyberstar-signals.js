@@ -471,7 +471,10 @@ class CyberstarSignalGenerator {
     const SAMPLE_RATE = 48000;
     const NUM_CHANNELS = 4;
     const BITS = 16;
-    const SIGNAL_PEAK = 0.8; // broadcast amplitude cap — keeps decoders happy
+    // 0.95 gives decoders a strong, clean square wave while keeping
+    // a small safety margin below 0dBFS to prevent clipping on room-
+    // temperature DACs. 0.8 was too conservative and caused mis-decodes.
+    const SIGNAL_PEAK = 0.95;
 
     const len = tdData.length;
     const mL = musicL || new Float32Array(len);
@@ -489,7 +492,9 @@ class CyberstarSignalGenerator {
     }
     function writeS16(off, f) {
       const s = Math.max(-1, Math.min(1, f));
-      view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+      // Math.round prevents the systematic truncation error that could
+      // slightly round a square-wave transition in the wrong direction.
+      view.setInt16(off, Math.round(s < 0 ? s * 0x8000 : s * 0x7fff), true);
     }
 
     // RIFF/WAVE header

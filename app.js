@@ -1828,13 +1828,15 @@ async function _renderBMCFrames(tape, statusEl) {
   const SAMPLE_RATE = 48000;
   const BITRATE = 4800;
   const FRAME_RATE = 50;
-  const AMPLITUDE = 0.85;
-  const VOLUME = currentPlaybackState.volume;
+  // Export: BMC data channels must be at full amplitude regardless of the UI
+  // volume knob. Volume only controls the speaker output during live playback.
+  // The exportBroadcastWav function clamps to ±SIGNAL_PEAK (0.95) as the
+  // final amplitude cap, so we render at scale=1.0 here.
+  const scale = 1.0;
   const FRAME_MS = 1000 / FRAME_RATE;
   const bitsPerFrame = 12 * 8;
   const SAMPLES_PER_BIT = SAMPLE_RATE / BITRATE; // exactly 10 at 48kHz / 4800bps
   const samplesPerFrame = bitsPerFrame * SAMPLES_PER_BIT; // exactly 960
-  const scale = AMPLITUDE * VOLUME;
   const totalFrames = Math.ceil(tape.duration / FRAME_MS);
 
   // Pilot tone: 1.0 s of logical-1 bits so ProgramBlue can lock its clock
@@ -1896,8 +1898,12 @@ async function _renderBMCFrames(tape, statusEl) {
   const outL = new Float32Array(PILOT_SAMPLES + totalFrames * samplesPerFrame);
   const outR = new Float32Array(PILOT_SAMPLES + totalFrames * samplesPerFrame);
 
-  // Prepend pilot tone to both channels
+  // Prepend pilot tone to both channels.
+  // Scale pilot by the same factor as show frames so the decoder sees
+  // a consistent amplitude throughout (pilot at ±1.0, clamped to ±0.95
+  // by exportBroadcastWav — identical to show frame amplitude).
   const pilot = makePilotTone();
+  for (let i = 0; i < pilot.length; i++) pilot[i] *= scale;
   outL.set(pilot);
   outR.set(pilot);
   let outOffset = PILOT_SAMPLES; // show frames start after the pilot
