@@ -1722,6 +1722,53 @@ function encodeWAV(samples, sampleRate) {
  * 16-bit stereo WAV Blob. TD track = Left, BD track = Right.
  * This is the correct format for Cyberstar hardware playback.
  */
+/**
+ * Encode N parallel Float32Array channel buffers into a multi-channel 16-bit PCM WAV Blob.
+ * Channel order: [musicL, musicR, TD, BD] → 4-channel RetroMation-compatible file.
+ * @param {Float32Array[]} channels  Array of per-channel sample buffers (must be same length)
+ * @param {number}         sampleRate
+ * @returns {Blob}
+ */
+function encodeMultiChWAV(channels, sampleRate) {
+  const numChannels = channels.length;
+  const numFrames = channels[0].length; // samples per channel
+  const bitsPerSample = 16;
+  const blockAlign = numChannels * (bitsPerSample / 8);
+  const byteRate = sampleRate * blockAlign;
+  const dataBytes = numFrames * blockAlign;
+
+  const buffer = new ArrayBuffer(44 + dataBytes);
+  const view = new DataView(buffer);
+  const writeStr = (off, str) => {
+    for (let i = 0; i < str.length; i++)
+      view.setUint8(off + i, str.charCodeAt(i));
+  };
+
+  writeStr(0, "RIFF");
+  view.setUint32(4, 36 + dataBytes, true);
+  writeStr(8, "WAVE");
+  writeStr(12, "fmt ");
+  view.setUint32(16, 16, true); // PCM chunk size
+  view.setUint16(20, 1, true); // PCM format
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeStr(36, "data");
+  view.setUint32(40, dataBytes, true);
+
+  let off = 44;
+  for (let i = 0; i < numFrames; i++) {
+    for (let ch = 0; ch < numChannels; ch++) {
+      const s = Math.max(-1, Math.min(1, channels[ch][i] || 0));
+      view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+      off += 2;
+    }
+  }
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
 function encodeStereoWAV(interleavedSamples, sampleRate) {
   const numFrames = interleavedSamples.length / 2; // sample frames (L+R pairs)
   const numSamples = interleavedSamples.length; // total individual samples
@@ -1936,28 +1983,49 @@ async function exportSignalWAV() {
       outOffset += samplesPerFrame;
     }
 
-    statusEl.textContent = "Encoding WAV…";
+    statusEl.textContent = "Encoding 4-ch WAV (RetroMation)…";
     await new Promise((r) => setTimeout(r, 0));
 
-    // Interleave L+R into a stereo WAV
-    const stereo = new Float32Array(outOffset * 2);
-    for (let i = 0; i < outOffset; i++) {
-      stereo[i * 2] = outL[i];
-      stereo[i * 2 + 1] = outR[i];
+    // ── Music channels: extract from decoded songBuffer if available ────────
+    // RetroMation channel layout: Ch1=Music L, Ch2=Music R, Ch3=TD, Ch4=BD
+    const musicLen = outOffset;
+    const musicL = new Float32Array(musicLen); // silence by default
+    const musicR = new Float32Array(musicLen);
+
+    if (songBuffer) {
+      // songBuffer was decoded via the same 48 kHz AudioContext — no resampling needed.
+      const srcL = songBuffer.getChannelData(0);
+      const srcR =
+        songBuffer.numberOfChannels > 1 ? songBuffer.getChannelData(1) : srcL; // mono source → duplicate to both channels
+      const copyLen = Math.min(musicLen, srcL.length);
+      musicL.set(srcL.subarray(0, copyLen));
+      musicR.set(srcR.subarray(0, copyLen));
     }
 
-    const wavBlob = encodeStereoWAV(stereo, SAMPLE_RATE);
+    // ── Assemble and encode 4-channel WAV ──────────────────────────────────
+    const wavBlob = encodeMultiChWAV(
+      [
+        musicL,
+        musicR,
+        outL.subarray(0, outOffset),
+        outR.subarray(0, outOffset),
+      ],
+      SAMPLE_RATE,
+    );
     const url = URL.createObjectURL(wavBlob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${tape.title.replace(/[^a-z0-9_\-]/gi, "_")}_BMC_signal.wav`;
+    a.download = `${tape.title.replace(/[^a-z0-9_\-]/gi, "_")}_RetroMation.wav`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 15000);
 
+    const musicNote = songBuffer
+      ? " + music"
+      : " (no music loaded — data channels only)";
     statusEl.style.color = "#0f8";
-    statusEl.textContent = `\u2713 Downloaded: ${tape.title} BMC signal WAV`;
+    statusEl.textContent = `\u2713 Downloaded: ${tape.title} — 4-ch RetroMation WAV${musicNote}`;
   } catch (err) {
     statusEl.style.color = "#f44";
     statusEl.textContent = `\u2717 ${err.message}`;
