@@ -2012,10 +2012,16 @@ async function exportSignalWAV() {
       ],
       SAMPLE_RATE,
     );
+    // Choose RetroMation-native extension based on band selection
+    const showtapeExt = bandKey === "rock" ? "rshw" : "cshw";
+    const showtapeLabel = bandKey === "rock"
+      ? "Rock-afire Explosion (.rshw)"
+      : "Munch's Make Believe Band (.cshw)";
+
     const url = URL.createObjectURL(wavBlob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${tape.title.replace(/[^a-z0-9_\-]/gi, "_")}_RetroMation.wav`;
+    a.download = `${tape.title.replace(/[^a-z0-9_\-]/gi, "_")}.${showtapeExt}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -2023,9 +2029,9 @@ async function exportSignalWAV() {
 
     const musicNote = songBuffer
       ? " + music"
-      : " (no music loaded — data channels only)";
+      : " (no music \u2014 data channels only)";
     statusEl.style.color = "#0f8";
-    statusEl.textContent = `\u2713 Downloaded: ${tape.title} — 4-ch RetroMation WAV${musicNote}`;
+    statusEl.textContent = `\u2713 Downloaded: ${tape.title} \u2014 ${showtapeLabel}${musicNote}`;
   } catch (err) {
     statusEl.style.color = "#f44";
     statusEl.textContent = `\u2717 ${err.message}`;
