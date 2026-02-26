@@ -1893,7 +1893,10 @@ async function _renderBMCFrames(tape, statusEl) {
     if (i < 8) slotMap.set(name, i);
   });
 
-  const SAMPLE_RATE = 48000;
+  // SPTE requires uncompressed 44.1 kHz audio.
+  // At 44100 Hz / 4800 bps → SPB = round(9.1875) = 9 → effective bit rate 44100/9 = 4900 bps (≈2% fast).
+  // BMC decoders use adaptive clock recovery and handle this deviation without issue.
+  const SAMPLE_RATE = 44100;
   const BITRATE = 4800;
   const FRAME_RATE = 50;
   // Export: BMC data channels must be at full amplitude regardless of the UI
@@ -1903,13 +1906,13 @@ async function _renderBMCFrames(tape, statusEl) {
   const scale = 1.0;
   const FRAME_MS = 1000 / FRAME_RATE;
   const bitsPerFrame = 12 * 8;
-  const SAMPLES_PER_BIT = SAMPLE_RATE / BITRATE; // exactly 10 at 48kHz / 4800bps
-  const samplesPerFrame = bitsPerFrame * SAMPLES_PER_BIT; // exactly 960
+  const SAMPLES_PER_BIT = Math.round(SAMPLE_RATE / BITRATE); // 9 at 44.1kHz / 4800bps
+  const samplesPerFrame = bitsPerFrame * SAMPLES_PER_BIT; // 864 samples @ 44.1kHz
   const totalFrames = Math.ceil(tape.duration / FRAME_MS);
 
   // Pilot tone: 1.0 s of logical-1 bits so ProgramBlue can lock its clock
   const PILOT_BITS = BITRATE; // 4800 bits = 1 second
-  const PILOT_SAMPLES = PILOT_BITS * SAMPLES_PER_BIT; // 48000 samples
+  const PILOT_SAMPLES = PILOT_BITS * SAMPLES_PER_BIT; // 43200 samples @ 44.1kHz
 
   // LSB-first bit extraction (matches RFE bitmap spec, Bit 0 = LSB of byte 0)
   function encodeBMCBits(bytes) {
@@ -1924,7 +1927,7 @@ async function _renderBMCFrames(tape, statusEl) {
   // Integer-perfect BMC waveform — exactly SAMPLES_PER_BIT samples per bit.
   // No floating-point accumulator, no noise. Digital decoders need raw square waves.
   function makeBMCWave(bits) {
-    const SPB = SAMPLES_PER_BIT; // integer: 10
+    const SPB = SAMPLES_PER_BIT; // integer: 9 (at 44.1kHz)
     const w = new Float32Array(bits.length * SPB);
     let level = 1;
     for (let bi = 0; bi < bits.length; bi++) {

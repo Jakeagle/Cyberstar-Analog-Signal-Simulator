@@ -469,10 +469,10 @@ class CyberstarSignalGenerator {
    * @param {Float32Array} bdData   BD BMC signal (pilot + show frames)
    * @param {Float32Array} [musicL] Music left  (optional; silence if omitted)
    * @param {Float32Array} [musicR] Music right (optional; silence if omitted)
-   * @returns {Blob} 4-channel 48kHz 16-bit PCM WAV Blob (WAVE_FORMAT_EXTENSIBLE)
+   * @returns {Blob} 4-channel 44.1kHz 16-bit PCM WAV Blob (WAVE_FORMAT_EXTENSIBLE)
    */
   exportBroadcastWav(tdData, bdData, musicL, musicR) {
-    const SAMPLE_RATE = 48000;
+    const SAMPLE_RATE = 44100;
     const NUM_CHANNELS = 4;
     const BITS = 16;
     // 0.7 is the STPE bit-stripper "sweet spot": strong enough to read reliably
@@ -483,9 +483,9 @@ class CyberstarSignalGenerator {
     const mL = musicL || new Float32Array(len);
     const mR = musicR || new Float32Array(len);
 
-    const blockAlign = NUM_CHANNELS * (BITS / 8);     // 8 bytes per sample-frame
-    const byteRate   = SAMPLE_RATE * blockAlign;       // 384000
-    const dataBytes  = len * blockAlign;
+    const blockAlign = NUM_CHANNELS * (BITS / 8); // 8 bytes per sample-frame
+    const byteRate = SAMPLE_RATE * blockAlign; // 352800 @ 44.1kHz
+    const dataBytes = len * blockAlign;
 
     // ── WAVE_FORMAT_EXTENSIBLE layout ────────────────────────────────────────
     // Standard WAV fmt chunk = 16 bytes.
@@ -501,7 +501,7 @@ class CyberstarSignalGenerator {
     // RIFF size field = total - 8 = 60 + dataBytes
     const FMT_CHUNK_DATA_SIZE = 40; // extensible fmt payload (not counting id+size)
     const HEADER_BYTES = 12 + 8 + FMT_CHUNK_DATA_SIZE + 8; // 68
-    const buf  = new ArrayBuffer(HEADER_BYTES + dataBytes);
+    const buf = new ArrayBuffer(HEADER_BYTES + dataBytes);
     const view = new DataView(buf);
 
     const writeStr = (off, str) => {
@@ -515,31 +515,42 @@ class CyberstarSignalGenerator {
 
     // ── RIFF chunk ───────────────────────────────────────────────────────────
     writeStr(0, "RIFF");
-    view.setUint32(4, 60 + dataBytes, true);   // RIFF chunk size
+    view.setUint32(4, 60 + dataBytes, true); // RIFF chunk size
     writeStr(8, "WAVE");
 
     // ── fmt chunk (WAVE_FORMAT_EXTENSIBLE) ───────────────────────────────────
     writeStr(12, "fmt ");
     view.setUint32(16, FMT_CHUNK_DATA_SIZE, true); // fmt chunk data size = 40
-    view.setUint16(20, 0xFFFE, true);              // WAVE_FORMAT_EXTENSIBLE
-    view.setUint16(22, NUM_CHANNELS, true);        // nChannels = 4
-    view.setUint32(24, SAMPLE_RATE, true);         // nSamplesPerSec
-    view.setUint32(28, byteRate, true);            // nAvgBytesPerSec
-    view.setUint16(32, blockAlign, true);          // nBlockAlign
-    view.setUint16(34, BITS, true);                // wBitsPerSample = 16
-    view.setUint16(36, 22, true);                  // cbSize = 22 (extra bytes)
-    view.setUint16(38, BITS, true);                // wValidBitsPerSample = 16
+    view.setUint16(20, 0xfffe, true); // WAVE_FORMAT_EXTENSIBLE
+    view.setUint16(22, NUM_CHANNELS, true); // nChannels = 4
+    view.setUint32(24, SAMPLE_RATE, true); // nSamplesPerSec
+    view.setUint32(28, byteRate, true); // nAvgBytesPerSec
+    view.setUint16(32, blockAlign, true); // nBlockAlign
+    view.setUint16(34, BITS, true); // wBitsPerSample = 16
+    view.setUint16(36, 22, true); // cbSize = 22 (extra bytes)
+    view.setUint16(38, BITS, true); // wValidBitsPerSample = 16
     // dwChannelMask: FL=0x1, FR=0x2, BL=0x10, BR=0x20 → 0x33
     // Ch0=MusicL(FL), Ch1=MusicR(FR), Ch2=TD(BL), Ch3=BD(BR)
-    view.setUint32(40, 0x00000033, true);          // dwChannelMask
+    view.setUint32(40, 0x00000033, true); // dwChannelMask
     // SubFormat GUID: KSDATAFORMAT_SUBTYPE_PCM
     // {00000001-0000-0010-8000-00AA00389B71}
     const pcmGuid = [
-      0x01,0x00,0x00,0x00, // Data1
-      0x00,0x00,           // Data2
-      0x10,0x00,           // Data3
-      0x80,0x00,           // Data4[0-1]
-      0x00,0xAA,0x00,0x38,0x9B,0x71, // Data4[2-7]
+      0x01,
+      0x00,
+      0x00,
+      0x00, // Data1
+      0x00,
+      0x00, // Data2
+      0x10,
+      0x00, // Data3
+      0x80,
+      0x00, // Data4[0-1]
+      0x00,
+      0xaa,
+      0x00,
+      0x38,
+      0x9b,
+      0x71, // Data4[2-7]
     ];
     for (let i = 0; i < 16; i++) view.setUint8(44 + i, pcmGuid[i]);
 
@@ -550,10 +561,16 @@ class CyberstarSignalGenerator {
     // Interleave: [MusicL, MusicR, TD, BD] per sample-frame
     let off = 68;
     for (let i = 0; i < len; i++) {
-      writeS16(off,     mL[i] || 0);                                              // Ch0 Music L
-      writeS16(off + 2, mR[i] || 0);                                              // Ch1 Music R
-      writeS16(off + 4, Math.max(-SIGNAL_PEAK, Math.min(SIGNAL_PEAK, tdData[i] || 0))); // Ch2 TD
-      writeS16(off + 6, Math.max(-SIGNAL_PEAK, Math.min(SIGNAL_PEAK, bdData[i] || 0))); // Ch3 BD
+      writeS16(off, mL[i] || 0); // Ch0 Music L
+      writeS16(off + 2, mR[i] || 0); // Ch1 Music R
+      writeS16(
+        off + 4,
+        Math.max(-SIGNAL_PEAK, Math.min(SIGNAL_PEAK, tdData[i] || 0)),
+      ); // Ch2 TD
+      writeS16(
+        off + 6,
+        Math.max(-SIGNAL_PEAK, Math.min(SIGNAL_PEAK, bdData[i] || 0)),
+      ); // Ch3 BD
       off += 8;
     }
 
