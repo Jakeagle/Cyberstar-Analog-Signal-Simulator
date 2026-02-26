@@ -552,6 +552,7 @@ function buildPlaybackSchedule(tape) {
       character: sequence.character,
       movement: sequence.movement,
       movement_display: sequence.movement_display,
+      state: sequence.state,
       executed: false,
     });
   });
