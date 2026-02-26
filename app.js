@@ -1828,68 +1828,78 @@ async function _renderBMCFrames(tape, statusEl) {
   const BITRATE = 4800;
   const FRAME_RATE = 50;
   const AMPLITUDE = 0.85;
-  const NOISE_LEVEL = 0.015;
-  const LOWPASS_HZ = 8000;
   const VOLUME = currentPlaybackState.volume;
   const FRAME_MS = 1000 / FRAME_RATE;
   const bitsPerFrame = 12 * 8;
-  const samplesPerBit = SAMPLE_RATE / BITRATE;
-  const samplesPerFrame = Math.ceil(bitsPerFrame * samplesPerBit);
+  const SAMPLES_PER_BIT = SAMPLE_RATE / BITRATE; // exactly 10 at 48kHz / 4800bps
+  const samplesPerFrame = bitsPerFrame * SAMPLES_PER_BIT; // exactly 960
   const scale = AMPLITUDE * VOLUME;
   const totalFrames = Math.ceil(tape.duration / FRAME_MS);
 
+  // Pilot tone: 1.0 s of logical-1 bits so ProgramBlue can lock its clock
+  const PILOT_BITS = BITRATE; // 4800 bits = 1 second
+  const PILOT_SAMPLES = PILOT_BITS * SAMPLES_PER_BIT; // 48000 samples
+
+  // LSB-first bit extraction (matches RFE bitmap spec, Bit 0 = LSB of byte 0)
   function encodeBMCBits(bytes) {
     const bits = [];
     for (let i = 0; i < bytes.length; i++) {
       const byte = bytes[i];
-      for (let b = 7; b >= 0; b--) bits.push((byte >> b) & 1);
+      for (let b = 0; b < 8; b++) bits.push((byte >> b) & 1);
     }
     return bits;
   }
 
+  // Integer-perfect BMC waveform — exactly SAMPLES_PER_BIT samples per bit.
+  // No floating-point accumulator, no noise. Digital decoders need raw square waves.
   function makeBMCWave(bits) {
-    const w = new Float32Array(Math.round(bits.length * samplesPerBit));
+    const SPB = SAMPLES_PER_BIT; // integer: 10
+    const w = new Float32Array(bits.length * SPB);
     let level = 1;
-    let sampleAccum = 0.0;
     for (let bi = 0; bi < bits.length; bi++) {
-      const start = Math.round(sampleAccum);
-      sampleAccum += samplesPerBit;
-      const end = Math.round(sampleAccum);
-      const mid = (start + end) >> 1;
+      const start = bi * SPB;
+      const mid = start + (SPB >> 1); // start + 5
+      const end = start + SPB;
       if (bits[bi] === 1) {
         for (let i = start; i < mid; i++) w[i] = level;
-        level *= -1;
+        level *= -1; // mid-bit transition
         for (let i = mid; i < end; i++) w[i] = level;
-        level *= -1;
+        level *= -1; // boundary transition
       } else {
         for (let i = start; i < end; i++) w[i] = level;
-        level *= -1;
-      }
-    }
-    if (NOISE_LEVEL > 0) {
-      for (let i = 0; i < w.length; i++) {
-        w[i] += (Math.random() - 0.5) * 2 * NOISE_LEVEL;
-        w[i] = Math.max(-1, Math.min(1, w[i]));
+        level *= -1; // boundary transition only
       }
     }
     return w;
   }
 
-  function lowpass(w) {
-    const rc = 1.0 / (2 * Math.PI * LOWPASS_HZ);
-    const alpha = 1 / SAMPLE_RATE / (rc + 1 / SAMPLE_RATE);
-    const f = new Float32Array(w.length);
-    f[0] = w[0];
-    for (let i = 1; i < w.length; i++)
-      f[i] = f[i - 1] + alpha * (w[i] - f[i - 1]);
-    return f;
+  // Pilot tone: PILOT_BITS of logical-1 BMC (4800 Hz screech for decoder clock lock)
+  function makePilotTone() {
+    const SPB = SAMPLES_PER_BIT;
+    const w = new Float32Array(PILOT_SAMPLES);
+    let level = 1;
+    for (let bi = 0; bi < PILOT_BITS; bi++) {
+      const start = bi * SPB;
+      const mid = start + (SPB >> 1);
+      const end = start + SPB;
+      for (let i = start; i < mid; i++) w[i] = level;
+      level *= -1;
+      for (let i = mid; i < end; i++) w[i] = level;
+      level *= -1;
+    }
+    return w;
   }
 
   const trackTD = new Uint8Array(12);
   const trackBD = new Uint8Array(12);
-  const outL = new Float32Array(totalFrames * samplesPerFrame);
-  const outR = new Float32Array(totalFrames * samplesPerFrame);
-  let outOffset = 0;
+  const outL = new Float32Array(PILOT_SAMPLES + totalFrames * samplesPerFrame);
+  const outR = new Float32Array(PILOT_SAMPLES + totalFrames * samplesPerFrame);
+
+  // Prepend pilot tone to both channels
+  const pilot = makePilotTone();
+  outL.set(pilot);
+  outR.set(pilot);
+  let outOffset = PILOT_SAMPLES; // show frames start after the pilot
 
   const seqs = [...tape.sequences].sort((a, b) => a.time - b.time);
   let seqIdx = 0;
@@ -1914,7 +1924,7 @@ async function _renderBMCFrames(tape, statusEl) {
           if (m) {
             const buf = m.track === "TD" ? trackTD : trackBD;
             const byteIdx = Math.floor(m.bit / 8);
-            const bitPos = 7 - (m.bit % 8);
+            const bitPos = m.bit % 8; // LSB-first
             if (seq.state) buf[byteIdx] |= 1 << bitPos;
             else buf[byteIdx] &= ~(1 << bitPos);
           }
@@ -1926,22 +1936,13 @@ async function _renderBMCFrames(tape, statusEl) {
       }
     }
 
-    const hasActivity =
-      trackTD.some((b) => b !== 0) || trackBD.some((b) => b !== 0);
-    if (hasActivity) {
-      const waveL = lowpass(makeBMCWave(encodeBMCBits(trackTD)));
-      const waveR = lowpass(makeBMCWave(encodeBMCBits(trackBD)));
-      const len = Math.min(samplesPerFrame, outL.length - outOffset);
-      for (let i = 0; i < len; i++) {
-        outL[outOffset + i] = Math.max(
-          -1,
-          Math.min(1, (waveL[i] || 0) * scale),
-        );
-        outR[outOffset + i] = Math.max(
-          -1,
-          Math.min(1, (waveR[i] || 0) * scale),
-        );
-      }
+    // Always emit raw 12-byte frames (no hasActivity guard, no headers, no filter)
+    const waveL = makeBMCWave(encodeBMCBits(trackTD));
+    const waveR = makeBMCWave(encodeBMCBits(trackBD));
+    const len = Math.min(samplesPerFrame, outL.length - outOffset);
+    for (let i = 0; i < len; i++) {
+      outL[outOffset + i] = (waveL[i] || 0) * scale;
+      outR[outOffset + i] = (waveR[i] || 0) * scale;
     }
     outOffset += samplesPerFrame;
   }
@@ -1985,6 +1986,7 @@ async function exportSignalOnly() {
   if (!g) return;
   const { tape, btn, statusEl } = g;
   try {
+    signalGenerator.isExporting = true; // suppress noise in waveform methods
     const {
       outL,
       outR,
@@ -2017,6 +2019,7 @@ async function exportSignalOnly() {
     statusEl.textContent = `\u2717 ${err.message}`;
     console.error("Signal export error:", err);
   } finally {
+    signalGenerator.isExporting = false;
     btn.disabled = false;
   }
 }
@@ -2027,25 +2030,23 @@ async function export4chWAV() {
   if (!g) return;
   const { tape, btn, statusEl } = g;
   try {
+    signalGenerator.isExporting = true;
     const {
       outL,
       outR,
       outOffset,
       tape: t,
-      SAMPLE_RATE,
     } = await _renderBMCFrames(tape, statusEl);
-    statusEl.textContent = "Encoding 4-ch WAV…";
+    statusEl.textContent = "Encoding 4-ch broadcast WAV…";
     await new Promise((r) => setTimeout(r, 0));
 
     const { musicL, musicR } = _extractMusicChannels(outOffset);
-    const blob = encodeMultiChWAV(
-      [
-        musicL,
-        musicR,
-        outL.subarray(0, outOffset),
-        outR.subarray(0, outOffset),
-      ],
-      SAMPLE_RATE,
+    // Route through exportBroadcastWav: correct 4-ch layout + ±0.8 amplitude cap
+    const blob = signalGenerator.exportBroadcastWav(
+      outL.subarray(0, outOffset),
+      outR.subarray(0, outOffset),
+      musicL,
+      musicR,
     );
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -2058,12 +2059,13 @@ async function export4chWAV() {
 
     const musicNote = songBuffer ? " + music" : " (data channels only)";
     statusEl.style.color = "#0f8";
-    statusEl.textContent = `\u2713 Downloaded: ${t.title} — 4-ch WAV${musicNote}`;
+    statusEl.textContent = `✓ Downloaded: ${t.title} — 4-ch broadcast WAV${musicNote}`;
   } catch (err) {
     statusEl.style.color = "#f44";
-    statusEl.textContent = `\u2717 ${err.message}`;
+    statusEl.textContent = `✗ ${err.message}`;
     console.error("4-ch WAV export error:", err);
   } finally {
+    signalGenerator.isExporting = false;
     btn.disabled = false;
   }
 }
@@ -2074,26 +2076,24 @@ async function exportShowFile() {
   if (!g) return;
   const { tape, btn, statusEl } = g;
   try {
+    signalGenerator.isExporting = true;
     const {
       outL,
       outR,
       outOffset,
       bandKey,
       tape: t,
-      SAMPLE_RATE,
     } = await _renderBMCFrames(tape, statusEl);
     statusEl.textContent = "Encoding show file…";
     await new Promise((r) => setTimeout(r, 0));
 
     const { musicL, musicR } = _extractMusicChannels(outOffset);
-    const blob = encodeMultiChWAV(
-      [
-        musicL,
-        musicR,
-        outL.subarray(0, outOffset),
-        outR.subarray(0, outOffset),
-      ],
-      SAMPLE_RATE,
+    // exportBroadcastWav: STPE-compatible 4-ch layout, ±0.8 amplitude
+    const blob = signalGenerator.exportBroadcastWav(
+      outL.subarray(0, outOffset),
+      outR.subarray(0, outOffset),
+      musicL,
+      musicR,
     );
     const ext = bandKey === "rock" ? "rshw" : "cshw";
     const label =
@@ -2118,6 +2118,7 @@ async function exportShowFile() {
     statusEl.textContent = `\u2717 ${err.message}`;
     console.error("Show file export error:", err);
   } finally {
+    signalGenerator.isExporting = false;
     btn.disabled = false;
   }
 }

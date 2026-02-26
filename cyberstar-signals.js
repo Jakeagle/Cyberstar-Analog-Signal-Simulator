@@ -45,6 +45,10 @@ class CyberstarSignalGenerator {
     // Callback for UI updates (e.g. Sync LED)
     this.onFrameSync = null;
 
+    // Broadcast/export mode flag — when true, bypasses filter and noise
+    // so digital decoders receive a clean square wave (§2 STPE Patch)
+    this.isExporting = false;
+
     this.initAudioContext();
   }
 
@@ -86,7 +90,7 @@ class CyberstarSignalGenerator {
     const bits = [];
     for (let i = 0; i < dataBytes.length; i++) {
       const byte = dataBytes[i];
-      for (let b = 7; b >= 0; b--) {
+      for (let b = 0; b < 8; b++) {
         bits.push((byte >> b) & 1);
       }
     }
@@ -96,39 +100,36 @@ class CyberstarSignalGenerator {
   /**
    * Render a BMC bit stream into a Float32Array waveform.
    * Produces a bipolar square wave (+1 / −1) with BMC phase transitions.
+   *
+   * Integer-perfect timing: at 48kHz / 4800bps = exactly 10 samples per bit.
+   * Hard index math (i * SPB) eliminates any floating-point drift across frames.
+   * When isExporting is true, noise is suppressed for clean digital decoder output.
    */
   generateBMCWaveform(bits) {
-    // Use a floating-point accumulator so the per-frame sample count is exact
-    // (96 bits × 9.1875 = 882 samples at 44100 Hz; 96 × 10.0 = 960 at 48000 Hz).
-    // Math.floor on cumulative products avoids rounding drift across a frame.
-    const samplesPerBit = this.sampleRate / this.bitrate;
-    const totalSamples = Math.round(bits.length * samplesPerBit);
-    const waveform = new Float32Array(totalSamples);
+    const SPB = Math.round(this.sampleRate / this.bitrate); // 10 at 48kHz/4800bps
+    const waveform = new Float32Array(bits.length * SPB);
     let level = 1; // start at +1
-    let sampleAccum = 0.0;
 
-    for (let bi = 0; bi < bits.length; bi++) {
-      const bit = bits[bi];
-      const start = Math.round(sampleAccum);
-      sampleAccum += samplesPerBit;
-      const end = Math.round(sampleAccum);
-      const midpoint = (start + end) >> 1; // integer mid, no rounding error
+    for (let i = 0; i < bits.length; i++) {
+      const start = i * SPB;
+      const mid = start + (SPB >> 1); // start + 5
+      const end = start + SPB; // start + 10
 
-      if (bit === 1) {
-        // First half at current level — hard ±1.0 square
-        for (let i = start; i < midpoint; i++) waveform[i] = level;
+      if (bits[i] === 1) {
+        // First half at current level, then mid-bit transition
+        for (let s = start; s < mid; s++) waveform[s] = level;
         level *= -1; // mid-bit transition
-        for (let i = midpoint; i < end; i++) waveform[i] = level;
+        for (let s = mid; s < end; s++) waveform[s] = level;
         level *= -1; // boundary transition
       } else {
         // Both halves at current level (no mid-bit transition)
-        for (let i = start; i < end; i++) waveform[i] = level;
+        for (let s = start; s < end; s++) waveform[s] = level;
         level *= -1; // boundary transition only
       }
     }
 
-    // Light noise for analog tape character
-    if (this.noiseLevel > 0) {
+    // Light noise for analog tape simulation — bypassed in broadcast/export mode
+    if (this.noiseLevel > 0 && !this.isExporting) {
       for (let i = 0; i < waveform.length; i++) {
         waveform[i] += (Math.random() - 0.5) * 2 * this.noiseLevel;
         waveform[i] = Math.max(-1, Math.min(1, waveform[i]));
@@ -253,12 +254,12 @@ class CyberstarSignalGenerator {
     // Left Channel (TD)
     const bitsTD = this.encodeBMC(this.trackTD);
     let waveL = this.generateBMCWaveform(bitsTD);
-    waveL = this.applyLowpassFilter(waveL);
+    if (!this.isExporting) waveL = this.applyLowpassFilter(waveL);
 
     // Right Channel (BD)
     const bitsBD = this.encodeBMC(this.trackBD);
     let waveR = this.generateBMCWaveform(bitsBD);
-    waveR = this.applyLowpassFilter(waveR);
+    if (!this.isExporting) waveR = this.applyLowpassFilter(waveR);
 
     const scale = this.amplitude * this.volume;
 
@@ -291,7 +292,7 @@ class CyberstarSignalGenerator {
   setBit(track, bitIndex, value) {
     const buffer = track === "TD" ? this.trackTD : this.trackBD;
     const byteIndex = Math.floor(bitIndex / 8);
-    const bitPos = 7 - (bitIndex % 8); // MSB first
+    const bitPos = bitIndex % 8; // LSB first
 
     if (value) {
       buffer[byteIndex] |= 1 << bitPos;
@@ -307,7 +308,7 @@ class CyberstarSignalGenerator {
   toggleBit(track, bitIndex) {
     const buffer = track === "TD" ? this.trackTD : this.trackBD;
     const byteIndex = Math.floor(bitIndex / 8);
-    const bitPos = 7 - (bitIndex % 8); // MSB first
+    const bitPos = bitIndex % 8; // LSB first
     const current = (buffer[byteIndex] >> bitPos) & 1;
     this.setBit(track, bitIndex, !current);
   }
@@ -342,7 +343,7 @@ class CyberstarSignalGenerator {
     this.resumeContext();
     const bits = this.encodeBMC(dataBytes);
     let waveform = this.generateBMCWaveform(bits);
-    waveform = this.applyLowpassFilter(waveform);
+    if (!this.isExporting) waveform = this.applyLowpassFilter(waveform);
 
     const scale = this.amplitude * volume;
     for (let i = 0; i < waveform.length; i++) waveform[i] *= scale;
@@ -438,9 +439,94 @@ class CyberstarSignalGenerator {
   getBit(track, bitIndex) {
     const buffer = track === "TD" ? this.trackTD : this.trackBD;
     const byteIndex = Math.floor(bitIndex / 8);
-    const bitInByte = 7 - (bitIndex % 8); // msb-first
+    const bitInByte = bitIndex % 8; // lsb-first
     if (byteIndex < 0 || byteIndex >= 12) return false;
     return (buffer[byteIndex] >> bitInByte) & 1;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Broadcast Export (Pro-Grade / STPE-Compatible)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Encode a 4-channel broadcast WAV ready for ProgramBlue / STPE import.
+   *
+   * Channel layout (RetroMation standard):
+   *   Ch 0 — Music Left
+   *   Ch 1 — Music Right
+   *   Ch 2 — Track TD (Treble/Top Drawer BMC signal)
+   *   Ch 3 — Track BD (Bass/Bottom Drawer BMC signal)
+   *
+   * The TD and BD data passed in should already contain the 1-second pilot
+   * tone prepended by _renderBMCFrames. Signal channels are clamped to ±0.8
+   * so digital decoders receive a clean, within-headroom square wave.
+   *
+   * @param {Float32Array} tdData   TD BMC signal (pilot + show frames)
+   * @param {Float32Array} bdData   BD BMC signal (pilot + show frames)
+   * @param {Float32Array} [musicL] Music left  (optional; silence if omitted)
+   * @param {Float32Array} [musicR] Music right (optional; silence if omitted)
+   * @returns {Blob} 4-channel 48kHz 16-bit PCM WAV Blob
+   */
+  exportBroadcastWav(tdData, bdData, musicL, musicR) {
+    const SAMPLE_RATE = 48000;
+    const NUM_CHANNELS = 4;
+    const BITS = 16;
+    const SIGNAL_PEAK = 0.8; // broadcast amplitude cap — keeps decoders happy
+
+    const len = tdData.length;
+    const mL = musicL || new Float32Array(len);
+    const mR = musicR || new Float32Array(len);
+    const dataBytes = len * NUM_CHANNELS * (BITS / 8);
+    const byteRate = SAMPLE_RATE * NUM_CHANNELS * (BITS / 8);
+    const blockAlign = NUM_CHANNELS * (BITS / 8);
+
+    const buf = new ArrayBuffer(44 + dataBytes);
+    const view = new DataView(buf);
+
+    function writeStr(off, str) {
+      for (let i = 0; i < str.length; i++)
+        view.setUint8(off + i, str.charCodeAt(i));
+    }
+    function writeS16(off, f) {
+      const s = Math.max(-1, Math.min(1, f));
+      view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+
+    // RIFF/WAVE header
+    writeStr(0, "RIFF");
+    view.setUint32(4, 36 + dataBytes, true);
+    writeStr(8, "WAVE");
+    writeStr(12, "fmt ");
+    view.setUint32(16, 16, true); // PCM chunk size
+    view.setUint16(20, 1, true); // PCM format
+    view.setUint16(22, NUM_CHANNELS, true);
+    view.setUint32(24, SAMPLE_RATE, true);
+    view.setUint32(28, byteRate, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, BITS, true);
+    writeStr(36, "data");
+    view.setUint32(40, dataBytes, true);
+
+    // Interleave samples: [MusicL, MusicR, TD, BD, MusicL, MusicR, TD, BD, …]
+    let off = 44;
+    for (let i = 0; i < len; i++) {
+      writeS16(off, mL[i] || 0);
+      off += 2; // Ch0 Music L
+      writeS16(off, mR[i] || 0);
+      off += 2; // Ch1 Music R
+      writeS16(
+        off,
+        Math.max(-SIGNAL_PEAK, Math.min(SIGNAL_PEAK, tdData[i] || 0)),
+      );
+      off += 2; // Ch2 TD
+      writeS16(
+        off,
+        Math.max(-SIGNAL_PEAK, Math.min(SIGNAL_PEAK, bdData[i] || 0)),
+      );
+      off += 2; // Ch3 BD
+    }
+
+    return new Blob([buf], { type: "audio/wav" });
   }
 }
 
