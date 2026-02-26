@@ -2256,11 +2256,17 @@ function stPreprocessSignal(channel, SR) {
     const B2 = B0;
     const A1 = (-2 * cosW) / a0;
     const A2 = (1 - alpha) / a0;
-    let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    let x1 = 0,
+      x2 = 0,
+      y1 = 0,
+      y2 = 0;
     for (let i = 0; i < len; i++) {
       const x0 = buf[i];
       const y0 = B0 * x0 + B1 * x1 + B2 * x2 - A1 * y1 - A2 * y2;
-      x2 = x1; x1 = x0; y2 = y1; y1 = y0;
+      x2 = x1;
+      x1 = x0;
+      y2 = y1;
+      y1 = y0;
       buf[i] = y0;
     }
   }
@@ -2276,30 +2282,40 @@ function stPreprocessSignal(channel, SR) {
     const B2 = B0;
     const A1 = (-2 * cosW) / a0;
     const A2 = (1 - alpha) / a0;
-    let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    let x1 = 0,
+      x2 = 0,
+      y1 = 0,
+      y2 = 0;
     for (let i = 0; i < len; i++) {
       const x0 = buf[i];
       const y0 = B0 * x0 + B1 * x1 + B2 * x2 - A1 * y1 - A2 * y2;
-      x2 = x1; x1 = x0; y2 = y1; y1 = y0;
+      x2 = x1;
+      x1 = x0;
+      y2 = y1;
+      y1 = y0;
       buf[i] = y0;
     }
   }
 
   // 3. AGC — peak normalise to −3 dBFS (0.707)
   let peak = 0;
-  for (let i = 0; i < len; i++) { const a = Math.abs(buf[i]); if (a > peak) peak = a; }
+  for (let i = 0; i < len; i++) {
+    const a = Math.abs(buf[i]);
+    if (a > peak) peak = a;
+  }
   if (peak > 0.001) {
     const gain = 0.707 / peak;
     for (let i = 0; i < len; i++) buf[i] *= gain;
   }
 
   // 4. Schmitt trigger — hysteresis squaring
-  const HI = 0.3, LO = -0.3;
+  const HI = 0.3,
+    LO = -0.3;
   const squared = new Int8Array(len);
   let state = 0;
   for (let i = 0; i < len; i++) {
-    if      (buf[i] >  HI) state =  1;
-    else if (buf[i] <  LO) state = -1;
+    if (buf[i] > HI) state = 1;
+    else if (buf[i] < LO) state = -1;
     // else: inside dead-band — hold previous state (hysteresis)
     squared[i] = state;
   }
@@ -2308,24 +2324,70 @@ function stPreprocessSignal(channel, SR) {
 
 // ─── Phase 2: Adaptive Clock Recovery ────────────────────────────────────────
 /**
+ * Histogram-based clock bootstrap.
+ * Scan up to the first SAMPLE_EDGES transitions, bucket their intervals into
+ * bins of width ±15% around each candidate, and return the most-common value.
+ * This gives a much better starting clock estimate for real archival tapes that
+ * may run slightly faster or slower than nominal 4800 baud.
+ */
+function stBootstrapClock(edges, nominalSPB) {
+  const SAMPLE_EDGES = Math.min(500, edges.length - 1);
+  if (SAMPLE_EDGES < 4) return nominalSPB;
+
+  // Collect intervals
+  const intervals = [];
+  for (let e = 1; e <= SAMPLE_EDGES; e++) {
+    const iv = edges[e] - edges[e - 1];
+    // Only consider intervals in the plausible BMC range (0.3× to 2× nominal)
+    if (iv >= nominalSPB * 0.3 && iv <= nominalSPB * 2.0) intervals.push(iv);
+  }
+  if (intervals.length < 4) return nominalSPB;
+
+  // Find the mode with 15%-wide bins centred on each distinct interval
+  let bestCount = 0,
+    bestCenter = nominalSPB;
+  for (let k = 0; k < intervals.length; k++) {
+    const c = intervals[k];
+    const lo = c * 0.85,
+      hi = c * 1.15;
+    let count = 0;
+    for (let j = 0; j < intervals.length; j++) {
+      if (intervals[j] >= lo && intervals[j] <= hi) count++;
+    }
+    if (count > bestCount) {
+      bestCount = count;
+      bestCenter = c;
+    }
+  }
+  // bestCenter is the most common raw interval; it could be a half-bit or full-bit.
+  // If it is near nominalSPB / 2, double it to get full-bit width.
+  if (bestCenter < nominalSPB * 0.65) bestCenter *= 2;
+  return bestCenter;
+}
+
+/**
  * Extract BMC bits from a Schmitt-squared signal using adaptive edge timing.
  *
  * Instead of sampling at fixed 10-sample intervals, we:
  *   • Find every polarity transition (edge).
+ *   • Bootstrap the initial clock estimate via histogram (real tapes drift).
  *   • Measure the interval between successive edges.
  *   • Classify intervals relative to a live clock estimate:
- *       half-bit  (30–70%  of clockEst)  → waits for its pair → logical 1
- *       full-bit  (70–140% of clockEst)  → logical 0
- *   • Update clockEst from a rolling average of the last 100 pulse widths
- *     so the decoder follows tape speed drift (wow & flutter).
+ *       half-bit  (25–72%  of clockEst)  → waits for its pair → logical 1
+ *       full-bit  (72–160% of clockEst)  → logical 0
+ *     (Wider windows than before for archival tolerance.)
+ *   • Update clockEst from a rolling median of the last 64 pulse widths.
  *
  * Returns Uint8Array of raw bits.
  */
 function stExtractBitsAdaptive(squared, SR) {
-  const NOMINAL_SPB  = SR / 4800;   // 10 samples @ 48 kHz / 4800 bps
-  const HISTORY_MAX  = 100;         // pulse widths to keep for clock averaging
-  const HALF_LO = 0.30, HALF_HI = 0.70;   // fraction of clockEst = half-bit
-  const FULL_LO = 0.70, FULL_HI = 1.40;   // fraction of clockEst = full-bit
+  const NOMINAL_SPB = SR / 4800; // 10 samples @ 48 kHz / 4800 bps
+  const HISTORY_MAX = 64;
+  // Wider acceptance windows for degraded/drifting archival recordings
+  const HALF_LO = 0.25,
+    HALF_HI = 0.72;
+  const FULL_LO = 0.72,
+    FULL_HI = 1.6;
 
   // Collect all polarity-transition sample indices
   const edges = [];
@@ -2338,41 +2400,41 @@ function stExtractBitsAdaptive(squared, SR) {
   }
   if (edges.length < 4) return new Uint8Array(0);
 
-  const bits        = [];
-  const history     = [];
-  let   clockEst    = NOMINAL_SPB;
-  let   halfPending = false; // true after one half-bit, waiting for its pair
+  // Histogram-based clock bootstrap — critical for archival accuracy
+  let clockEst = stBootstrapClock(edges, NOMINAL_SPB);
+
+  const bits = [];
+  const history = [];
+  let halfPending = false;
 
   for (let e = 1; e < edges.length; e++) {
     const interval = edges[e] - edges[e - 1];
-    const ratio    = interval / clockEst;
+    const ratio = interval / clockEst;
 
     const isHalf = ratio >= HALF_LO && ratio <= HALF_HI;
     const isFull = ratio >= FULL_LO && ratio <= FULL_HI;
 
     if (!isHalf && !isFull) {
-      // Anomalous interval (dropout or splice) — discard pending half and skip
-      halfPending = false;
+      halfPending = false; // dropout or splice — discard pending half, skip
       continue;
     }
 
-    // Update adaptive clock (normalise half-bit intervals to full-bit equivalent)
+    // Update adaptive clock with rolling median for flutter rejection
     history.push(isFull ? interval : interval * 2);
     if (history.length > HISTORY_MAX) history.shift();
-    let sum = 0;
-    for (let k = 0; k < history.length; k++) sum += history[k];
-    clockEst = sum / history.length;
+    // Use median instead of mean — more robust against outlier intervals
+    const sorted = history.slice().sort((a, b) => a - b);
+    clockEst = sorted[Math.floor(sorted.length / 2)];
 
     if (isFull) {
       halfPending = false;
       bits.push(0);
     } else {
-      // half-bit
       if (halfPending) {
-        bits.push(1); // second half of a BMC '1' pulse pair
+        bits.push(1);
         halfPending = false;
       } else {
-        halfPending = true; // first half — wait for partner
+        halfPending = true;
       }
     }
   }
@@ -2384,19 +2446,27 @@ function stExtractBitsAdaptive(squared, SR) {
 /**
  * Scan a raw bit array for 0xFF sync bytes and chunk into 12-byte RAE frames.
  *
- * •  Hunts forward for 8 consecutive 1-bits (0xFF = RAE Start-of-Frame).
- * •  Skips any all-0xFF pilot region so it lands on real show data.
- * •  Reads 12 bytes per frame (96 bits); validates the frame boundary by
- *    checking that the next frame also starts with 0xFF.
- * •  On bad boundaries: triggers Resync Mode — jumps to the next 0xFF
- *    to prevent cascading "Crazy Bits" corruption.
+ * Design notes for archival robustness:
+ *   • Hunts for the FIRST frame that has at least one non-0xFF data byte
+ *     (skips the simulator's pilot tone, absent on real tapes — both cases work).
+ *   • Accepts any 12-byte block that begins with 0xFF.
+ *   • After processing a frame, simply advances 96 bits and checks the next
+ *     position — if it isn't 0xFF, it hunts forward for the next sync byte.
+ *   • REMOVED: the old look-ahead "next frame must also be 0xFF" check.
+ *     That check was the main killer on real archival recordings because
+ *     even 1-2 bits of clock drift from Phase 2 causes the boundary to fall
+ *     one bit short or long of the true sync, rejecting every frame.
+ *   • Fault-tolerant sync: also accepts a byte with 7/8 bits set as a sync
+ *     byte (1-bit error tolerance), for recordings where a single bit was
+ *     dropped or flipped in the sync byte due to tape drop-out.
  *
  * Returns { frames: Uint8Array(12)[], goodFrames, resyncs }
  */
 function stResyncAndBuildFrames(rawBits) {
   const BITS_PER_FRAME = 96; // 12 bytes × 8 bits
-  const frames   = [];
-  let goodFrames = 0, resyncs  = 0;
+  const frames = [];
+  let goodFrames = 0,
+    resyncs = 0;
 
   // Read one byte (LSB-first) from rawBits at position pos; returns −1 if OOB
   function readByte(pos) {
@@ -2406,34 +2476,54 @@ function stResyncAndBuildFrames(rawBits) {
     return v;
   }
 
-  // Find the next 0xFF byte (8 consecutive 1-bits) starting at `from`
+  // Count set bits in a byte
+  function popcount(v) {
+    let c = 0;
+    for (let b = 0; b < 8; b++) if ((v >> b) & 1) c++;
+    return c;
+  }
+
+  // Sync byte: 0xFF exactly OR 7/8 bits set (1-bit fault tolerance)
+  function isSync(pos) {
+    const v = readByte(pos);
+    return v >= 0 && popcount(v) >= 7;
+  }
+
+  // Find the next valid sync position (7/8 bits set) starting at `from`
   function findNextSync(from) {
     for (let s = from; s <= rawBits.length - 8; s++) {
-      let ok = true;
-      for (let b = 0; b < 8; b++) { if (!rawBits[s + b]) { ok = false; break; } }
-      if (ok) return s;
+      if (isSync(s)) return s;
     }
     return -1;
   }
 
-  // Locate first sync and advance past the all-0xFF pilot tone region
+  // Locate first sync
   let i = findNextSync(0);
   if (i < 0) return { frames: [], goodFrames: 0, resyncs: 0 };
 
+  // Skip past any all-0xFF pilot region (simulator export) or landing directly
+  // on show data (real tapes that have no pilot tone).
   while (i >= 0) {
     let hasData = false;
     for (let bIdx = 1; bIdx < 12; bIdx++) {
-      if (readByte(i + bIdx * 8) !== 0xFF) { hasData = true; break; }
+      if (readByte(i + bIdx * 8) !== 0xff) {
+        hasData = true;
+        break;
+      }
     }
-    if (hasData) break; // found first data-bearing frame
+    if (hasData) break;
     i = findNextSync(i + 8);
   }
-  if (i < 0) return { frames: [], goodFrames: 0, resyncs: 0 };
+  if (i < 0) {
+    // All data looks like pilot — treat position 0 as start (edge case)
+    i = findNextSync(0);
+    if (i < 0) return { frames: [], goodFrames: 0, resyncs: 0 };
+  }
 
   // ── Main frame loop ──────────────────────────────────────────────────────
   while (i + BITS_PER_FRAME <= rawBits.length) {
-    if (readByte(i) !== 0xFF) {
-      // Lost sync — hunt for the next 0xFF (Resync Mode)
+    if (!isSync(i)) {
+      // Out of sync — hunt forward for next sync byte
       const ns = findNextSync(i + 1);
       if (ns < 0) break;
       i = ns;
@@ -2446,24 +2536,19 @@ function stResyncAndBuildFrames(rawBits) {
     let valid = true;
     for (let byteIdx = 0; byteIdx < 12; byteIdx++) {
       const b = readByte(i + byteIdx * 8);
-      if (b < 0) { valid = false; break; }
+      if (b < 0) {
+        valid = false;
+        break;
+      }
       frame[byteIdx] = b;
     }
     if (!valid) break;
 
-    // Frame validation: next frame must also start with 0xFF (or be the last frame)
-    const nextStart = i + BITS_PER_FRAME;
-    if (nextStart + 8 <= rawBits.length && readByte(nextStart) !== 0xFF) {
-      // Bad boundary — resync
-      const ns = findNextSync(i + 1);
-      if (ns < 0) break;
-      i = ns;
-      resyncs++;
-      continue;
-    }
-
     frames.push(frame);
     goodFrames++;
+
+    // Advance to next expected frame position.
+    // If it doesn't start with a sync byte, the outer loop will resync.
     i += BITS_PER_FRAME;
   }
 
@@ -2474,17 +2559,21 @@ function stResyncAndBuildFrames(rawBits) {
 /**
  * Load a signal or broadcast WAV through the 4-phase forensic engine:
  *   Phase 1 — Signal Conditioning  (DC removal, band-pass, AGC, Schmitt)
- *   Phase 2 — Adaptive Clock Recovery (edge-triggered, wow/flutter-tolerant)
- *   Phase 3 — Sync Hunt + Frame Validation + Resync Mode
+ *   Phase 2 — Adaptive Clock Recovery (histogram bootstrap + rolling median)
+ *   Phase 3 — Fault-Tolerant Sync Hunt + Frame Assembly (7/8-bit sync match,
+ *              no inter-frame look-ahead — robust to real archival recordings)
  *   Phase 4 — Re-synthesis (frames feed the live BMC generator on playback)
+ *
+ * Archival robustness: tolerates pilot-less tapes, speed drift, drop-outs,
+ * and 1-bit errors in sync bytes. Falls back to whichever track decoded best.
  */
 async function stLoadFile(file) {
   const statusEl = document.getElementById("st-status");
-  const nameEl   = document.getElementById("st-file-name");
-  const badge    = document.getElementById("st-format-badge");
+  const nameEl = document.getElementById("st-file-name");
+  const badge = document.getElementById("st-format-badge");
   const controls = document.getElementById("st-controls");
-  const playBtn  = document.getElementById("st-play-btn");
-  const stopBtn  = document.getElementById("st-stop-btn");
+  const playBtn = document.getElementById("st-play-btn");
+  const stopBtn = document.getElementById("st-stop-btn");
 
   stStop();
   stState.frames = [];
@@ -2492,7 +2581,7 @@ async function stLoadFile(file) {
   stState.is4ch = false;
 
   nameEl.textContent = file.name;
-  badge.style.display   = "none";
+  badge.style.display = "none";
   controls.style.display = "none";
   if (playBtn) playBtn.disabled = true;
   if (stopBtn) stopBtn.disabled = true;
@@ -2506,66 +2595,77 @@ async function stLoadFile(file) {
 
     const audioBuffer = await ac.decodeAudioData(arrayBuffer);
     const numCh = audioBuffer.numberOfChannels;
-    const SR    = audioBuffer.sampleRate;
+    const SR = audioBuffer.sampleRate;
 
     const is4ch = numCh >= 4;
     stState.is4ch = is4ch;
 
     // Select signal channels based on file format
     const tdChan = audioBuffer.getChannelData(is4ch ? 2 : 0);
-    const bdChan = audioBuffer.getChannelData(is4ch ? 3 : (numCh > 1 ? 1 : 0));
+    const bdChan = audioBuffer.getChannelData(is4ch ? 3 : numCh > 1 ? 1 : 0);
 
     // ── Phase 1: Signal Conditioning ───────────────────────────────────────
-    statusEl.textContent = `Phase 1 — Signal conditioning (DC, band-pass, AGC, Schmitt)…`;
+    statusEl.textContent = `Phase 1 of 4 — Signal conditioning  [${numCh}ch @ ${SR} Hz]…`;
     await new Promise((r) => setTimeout(r, 0));
 
     const tdSquared = stPreprocessSignal(tdChan, SR);
     const bdSquared = stPreprocessSignal(bdChan, SR);
 
     // ── Phase 2: Adaptive Clock Recovery ───────────────────────────────────
-    statusEl.textContent = "Phase 2 — Adaptive clock recovery (wow/flutter correction)…";
+    statusEl.textContent =
+      "Phase 2 of 4 — Adaptive clock recovery (wow/flutter)…";
     await new Promise((r) => setTimeout(r, 0));
 
     const tdRawBits = stExtractBitsAdaptive(tdSquared, SR);
     const bdRawBits = stExtractBitsAdaptive(bdSquared, SR);
 
-    if (tdRawBits.length < 96) {
+    statusEl.textContent = `Phase 2 complete — TD: ${tdRawBits.length} bits, BD: ${bdRawBits.length} bits`;
+    await new Promise((r) => setTimeout(r, 0));
+
+    if (tdRawBits.length < 96 && bdRawBits.length < 96) {
       throw new Error(
-        `Too few bits extracted from TD channel (${tdRawBits.length}). ` +
-        "Check that the file contains a valid BMC signal."
+        `Bit extraction failed — TD: ${tdRawBits.length} bits, BD: ${bdRawBits.length} bits. ` +
+          "Is the file a valid BMC/RAE signal recording? " +
+          "For 4-channel broadcasts the signal must be on channels 3 & 4.",
       );
     }
 
-    // ── Phase 3: Sync Hunt + Frame Validation ──────────────────────────────
-    statusEl.textContent = "Phase 3 — Sync hunting & frame validation…";
+    // ── Phase 3: Sync Hunt + Frame Assembly ────────────────────────────────
+    statusEl.textContent =
+      "Phase 3 of 4 — Sync hunting & fault-tolerant frame assembly…";
     await new Promise((r) => setTimeout(r, 0));
 
     const tdResult = stResyncAndBuildFrames(tdRawBits);
     const bdResult = stResyncAndBuildFrames(bdRawBits);
 
-    if (tdResult.goodFrames === 0) {
+    if (tdResult.goodFrames === 0 && bdResult.goodFrames === 0) {
       throw new Error(
-        "No valid RAE frames found in the TD channel. " +
-        "Ensure the file was exported from this simulator or a compatible source."
+        `No valid RAE frames found — diagnostic: ` +
+          `TD ${tdRawBits.length} bits → ${tdResult.goodFrames} frames, ` +
+          `BD ${bdRawBits.length} bits → ${bdResult.goodFrames} frames. ` +
+          "The signal may be a different encoding or the channels may be swapped.",
       );
     }
 
     // ── Phase 4: Re-synthesis — zip TD + BD frames ─────────────────────────
-    // Pair up the two tracks; if BD has fewer frames, pad with a zero frame.
-    const totalFrames = tdResult.frames.length;
-    const emptyBD     = new Uint8Array(12); // silent fill if BD is shorter
-    emptyBD[0]        = 0xFF;               // keep sync byte intact
+    // Use whichever track decoded more frames as the authoritative length.
+    const totalFrames = Math.max(
+      tdResult.frames.length,
+      bdResult.frames.length,
+    );
+    const emptyFrame = new Uint8Array(12);
+    emptyFrame[0] = 0xff; // valid sync byte so playback engine doesn't choke
 
     const frames = [];
     for (let f = 0; f < totalFrames; f++) {
       frames.push({
-        td: tdResult.frames[f],
-        bd: bdResult.frames[f] || emptyBD,
+        td: tdResult.frames[f] || emptyFrame,
+        bd: bdResult.frames[f] || emptyFrame,
       });
     }
 
-    stState.frames          = frames;
-    stState.totalFrames     = totalFrames;
+    stState.frames = frames;
+    stState.totalFrames = totalFrames;
     stState.totalDurationMs = Math.round((totalFrames / 50) * 1000);
 
     // Cache music channels for 4-ch broadcast files
@@ -2583,12 +2683,14 @@ async function stLoadFile(file) {
         ? "SIGNAL ONLY  ·  Stereo  ·  TD left / BD right"
         : "SIGNAL ONLY  ·  Mono  ·  TD only";
 
-    const resyncNote = (tdResult.resyncs + bdResult.resyncs) > 0
-      ? `  ·  ⚠ ${tdResult.resyncs + bdResult.resyncs} resyncs (tape artifacts corrected)`
-      : "  ·  ✓ Clean decode";
+    const totalResyncs = tdResult.resyncs + bdResult.resyncs;
+    const resyncNote =
+      totalResyncs > 0
+        ? `  ·  ⚠ ${totalResyncs} resyncs corrected`
+        : "  ·  ✓ Clean decode";
 
-    badge.textContent  = fmtLabel;
-    badge.className    = `st-format-badge ${is4ch ? "badge-4ch" : "badge-2ch"}`;
+    badge.textContent = fmtLabel;
+    badge.className = `st-format-badge ${is4ch ? "badge-4ch" : "badge-2ch"}`;
     badge.style.display = "block";
     controls.style.display = "block";
     if (playBtn) playBtn.disabled = false;
@@ -2596,13 +2698,12 @@ async function stLoadFile(file) {
 
     stUpdateProgress(0);
     statusEl.style.color = "#0f8";
-    statusEl.textContent =
-      `✓ ${totalFrames} frames decoded  ·  ${formatTime(stState.totalDurationMs)}${resyncNote}`;
+    statusEl.textContent = `✓ ${totalFrames} frames  ·  ${formatTime(stState.totalDurationMs)}${resyncNote}`;
 
     updateSignalMonitor(
       `Forensic Engine: "${file.name}" — ` +
-      `${totalFrames} frames, ` +
-      `TD ${tdResult.resyncs} resyncs, BD ${bdResult.resyncs} resyncs  (${fmtLabel})`
+        `${totalFrames} frames  ·  TD ${tdRawBits.length} bits / BD ${bdRawBits.length} bits  ·  ` +
+        `${totalResyncs} total resyncs  (${fmtLabel})`,
     );
   } catch (err) {
     statusEl.style.color = "#f44";
