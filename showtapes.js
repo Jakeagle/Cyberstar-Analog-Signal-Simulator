@@ -243,67 +243,67 @@ function getChannelForCharacter(character) {
  */
 const MOVEMENT_ALIASES = {
   // Guitar / instrument
-  guitar:              "guitar_raise",
-  guitar_up:           "guitar_raise",
-  guitar_down:         "guitar_raise",
-  guitar_strum:        "guitar_raise",
-  strum_motion:        "arm_right_swing",
-  arm_right_strum:     "arm_right_swing",
-  arm_left_strum:      "arm_left_swing",
-  arm_side_to_side:    "arm_right_swing",
-  keyboard_lean:       "body_lean",
+  guitar: "guitar_raise",
+  guitar_up: "guitar_raise",
+  guitar_down: "guitar_raise",
+  guitar_strum: "guitar_raise",
+  strum_motion: "arm_right_swing",
+  arm_right_strum: "arm_right_swing",
+  arm_left_strum: "arm_left_swing",
+  arm_side_to_side: "arm_right_swing",
+  keyboard_lean: "body_lean",
   // Arms / elbows / wrists
-  arm_left_up:         "arm_left_raise",
-  arm_right_up:        "arm_right_raise",
-  arm_left_down:       "arm_left_raise",   // signal OFF of raise
-  arm_right_down:      "arm_right_raise",  // signal OFF of raise
-  arm_down:            "arm_right_raise",
-  arm_up:              "arm_right_raise",
-  arm_swing:           "arm_right_swing",
-  arm_twist:           "arm_right_twist",
-  shoulder_left:       "arm_left_raise",
-  shoulder_right:      "arm_right_raise",
-  wrist_rotate:        "arm_right_twist",
-  wrist_flick:         "arm_right_twist",
+  arm_left_up: "arm_left_raise",
+  arm_right_up: "arm_right_raise",
+  arm_left_down: "arm_left_raise", // signal OFF of raise
+  arm_right_down: "arm_right_raise", // signal OFF of raise
+  arm_down: "arm_right_raise",
+  arm_up: "arm_right_raise",
+  arm_swing: "arm_right_swing",
+  arm_twist: "arm_right_twist",
+  shoulder_left: "arm_left_raise",
+  shoulder_right: "arm_right_raise",
+  wrist_rotate: "arm_right_twist",
+  wrist_flick: "arm_right_twist",
   // Drums / cymbals
-  snare_drum:          "hi_hat",
-  cymbal_right:        "hi_hat",
-  cymbal_reach:        "hi_hat",
+  snare_drum: "hi_hat",
+  cymbal_right: "hi_hat",
+  cymbal_reach: "hi_hat",
   // Blinks / eyes
-  blink:               "eyelid_left",
-  blink_left:          "eyelid_left",
-  blink_right:         "eyelid_right",
-  eye_center:          "eye_left",
+  blink: "eyelid_left",
+  blink_left: "eyelid_left",
+  blink_right: "eyelid_right",
+  eye_center: "eye_left",
   // Head
-  head_turn:           "head_left",
-  head_nod:            "head_up",
-  head_tilt:           "head_up",
-  neck_sway:           "head_left",
+  head_turn: "head_left",
+  head_nod: "head_up",
+  head_tilt: "head_up",
+  neck_sway: "head_left",
   // Hands / gestures
-  hand_wave:           "arm_right_raise",
-  hand_pose:           "arm_left_raise",
-  hand_gesture:        "arm_right_raise",
+  hand_wave: "arm_right_raise",
+  hand_pose: "arm_left_raise",
+  hand_gesture: "arm_right_raise",
   // Body / torso / hips
-  hip_sway:            "body_twist_left",
-  hip_swing:           "body_twist_right",
-  hip_gyrate:          "body_twist_left",
-  waist_sway:          "body_twist_left",
-  torso_sway:          "body_lean",
-  torso_twist:         "body_twist_left",
-  torso_move:          "body_lean",
-  torso_shift:         "body_twist_right",
-  torso_swivel:        "body_twist_left",
-  torso_lean:          "body_lean",
-  body_turn_left:      "body_twist_left",
-  body_turn_right:     "body_twist_right",
-  rhythm_bounce:       "body_lean",
+  hip_sway: "body_twist_left",
+  hip_swing: "body_twist_right",
+  hip_gyrate: "body_twist_left",
+  waist_sway: "body_twist_left",
+  torso_sway: "body_lean",
+  torso_twist: "body_twist_left",
+  torso_move: "body_lean",
+  torso_shift: "body_twist_right",
+  torso_swivel: "body_twist_left",
+  torso_lean: "body_lean",
+  body_turn_left: "body_twist_left",
+  body_turn_right: "body_twist_right",
+  rhythm_bounce: "body_lean",
   // Feet / legs
-  foot_stomp:          "foot_tap",
-  foot_bounce:         "foot_tap",
-  foot_kick:           "leg_left_kick",
-  leg_kick:            "leg_left_kick",
+  foot_stomp: "foot_tap",
+  foot_bounce: "foot_tap",
+  foot_kick: "leg_left_kick",
+  leg_kick: "leg_left_kick",
   // Ear (exact match guard)
-  eyebrow_raise:       "eyebrow",
+  eyebrow_raise: "eyebrow",
 };
 
 /**
@@ -331,7 +331,7 @@ function addMovement(sequences, time, character, movement) {
   const movKey = resolveMovementKey(character, movement);
   if (!movKey) return; // unrecognised movement — skip silently
   const t = Math.max(0, Math.round(time));
-  sequences.push({ time: t,       character, movement: movKey, state: true  });
+  sequences.push({ time: t, character, movement: movKey, state: true });
   sequences.push({ time: t + 120, character, movement: movKey, state: false });
 }
 
