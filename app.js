@@ -1893,9 +1893,8 @@ async function _renderBMCFrames(tape, statusEl) {
     if (i < 8) slotMap.set(name, i);
   });
 
-  // SPTE requires uncompressed 44.1 kHz audio.
-  // At 44100 Hz / 4800 bps → SPB = round(9.1875) = 9 → effective bit rate 44100/9 = 4900 bps (≈2% fast).
-  // BMC decoders use adaptive clock recovery and handle this deviation without issue.
+  // SPTE requires uncompressed 44.1 kHz audio with exactly 10 samples per bit
+  // (effective bit rate: 44100 / 10 = 4410 bps).
   const SAMPLE_RATE = 44100;
   const BITRATE = 4800;
   const FRAME_RATE = 50;
@@ -1906,13 +1905,13 @@ async function _renderBMCFrames(tape, statusEl) {
   const scale = 1.0;
   const FRAME_MS = 1000 / FRAME_RATE;
   const bitsPerFrame = 12 * 8;
-  const SAMPLES_PER_BIT = Math.round(SAMPLE_RATE / BITRATE); // 9 at 44.1kHz / 4800bps
-  const samplesPerFrame = bitsPerFrame * SAMPLES_PER_BIT; // 864 samples @ 44.1kHz
+  const SAMPLES_PER_BIT = 10; // fixed: 44100 Hz / 10 SPB = 4410 bps
+  const samplesPerFrame = bitsPerFrame * SAMPLES_PER_BIT; // 960 samples
   const totalFrames = Math.ceil(tape.duration / FRAME_MS);
 
   // Pilot tone: 1.0 s of logical-1 bits so ProgramBlue can lock its clock
   const PILOT_BITS = BITRATE; // 4800 bits = 1 second
-  const PILOT_SAMPLES = PILOT_BITS * SAMPLES_PER_BIT; // 43200 samples @ 44.1kHz
+  const PILOT_SAMPLES = PILOT_BITS * SAMPLES_PER_BIT; // 48000 samples
 
   // LSB-first bit extraction (matches RFE bitmap spec, Bit 0 = LSB of byte 0)
   function encodeBMCBits(bytes) {
@@ -1927,7 +1926,7 @@ async function _renderBMCFrames(tape, statusEl) {
   // Integer-perfect BMC waveform — exactly SAMPLES_PER_BIT samples per bit.
   // No floating-point accumulator, no noise. Digital decoders need raw square waves.
   function makeBMCWave(bits) {
-    const SPB = SAMPLES_PER_BIT; // integer: 9 (at 44.1kHz)
+    const SPB = SAMPLES_PER_BIT; // integer: 10
     const w = new Float32Array(bits.length * SPB);
     let level = 1;
     for (let bi = 0; bi < bits.length; bi++) {
@@ -2580,7 +2579,7 @@ function stResyncAndBuildFrames(rawBits) {
  * Returns a Uint8Array of raw bit values (0 / 1).
  */
 function stDirectDecode(channel, SR) {
-  const SPB = SR / 4800; // exact samples-per-bit (e.g. 10 @ 48 kHz)
+  const SPB = 10; // fixed: 44.1kHz SPTE standard is always 10 SPB (44100 / 4410 bps)
   const HALF = SPB * 0.5;
   const N = channel.length;
   const bits = [];
