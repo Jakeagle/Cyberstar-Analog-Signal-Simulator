@@ -1240,6 +1240,41 @@ h1 {
 
 /* ── Signal Tester ─────────────────────────────────────────────────────── */
 
+/* ── Signal Tester: source selector ───────────────────────────────────────── */
+.st-source-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 8px 0 12px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.st-source-label {
+  font-size: 0.85rem;
+  color: #aaa;
+  white-space: nowrap;
+}
+.st-source-option {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  color: #ddd;
+}
+.st-source-option input[type="radio"] {
+  accent-color: #0af;
+}
+.st-source-hint {
+  font-size: 0.78rem;
+  color: #888;
+  font-style: italic;
+  margin-left: auto;
+}
+
 .st-band-row {
   display: flex;
   align-items: center;

@@ -389,6 +389,20 @@ function setupEventListeners() {
   const stStopBtn = document.getElementById("st-stop-btn");
   const stProgress = document.getElementById("st-progress");
 
+  // Source selector — update hint text on change
+  document.querySelectorAll('input[name="st-source"]').forEach((radio) => {
+    radio.addEventListener("change", () => {
+      const hint = document.getElementById("st-source-hint");
+      if (!hint) return;
+      if (radio.value === "online") {
+        hint.textContent = "Direct decode — no signal processing applied.";
+      } else {
+        hint.textContent =
+          "4-phase forensic engine — DC filter, adaptive clock, fault-tolerant sync.";
+      }
+    });
+  });
+
   if (stWavInput) {
     stWavInput.addEventListener("change", (e) => {
       const file = e.target.files[0];
@@ -2555,6 +2569,92 @@ function stResyncAndBuildFrames(rawBits) {
   return { frames, goodFrames, resyncs };
 }
 
+// ─── stDirectDecode: clean fixed-clock BMC decoder for simulator-exported files ─
+/**
+ * For files created by Cyberstar Online / this simulator: the signal is a
+ * perfect square-wave at exactly 4800 bps.  No filtering or adaptive clock
+ * needed — just threshold + fixed-SPB edge classification.
+ * Returns a Uint8Array of raw bit values (0 / 1).
+ */
+function stDirectDecode(channel, SR) {
+  const SPB = SR / 4800; // exact samples-per-bit (e.g. 10 @ 48 kHz)
+  const HALF = SPB * 0.5;
+  const N = channel.length;
+  const bits = [];
+
+  // Collect zero-crossing edges
+  const edges = [];
+  for (let i = 1; i < N; i++) {
+    if (channel[i] >= 0 !== channel[i - 1] >= 0) edges.push(i);
+  }
+  if (edges.length < 2) return new Uint8Array(bits);
+
+  // BMC decode: half-period gap between consecutive edges → bit 1
+  //             full-period gap → bit 0.
+  let e = 0;
+  while (e < edges.length) {
+    const gap = e + 1 < edges.length ? edges[e + 1] - edges[e] : SPB;
+    if (gap < HALF * 1.45) {
+      // Two transitions within one bit period → '1'
+      bits.push(1);
+      e += 2; // consume both the mid-bit and the boundary edge
+    } else {
+      // One transition at bit boundary → '0'
+      bits.push(0);
+      e += 1;
+    }
+  }
+  return new Uint8Array(bits);
+}
+
+/**
+ * Simple frame assembler for clean simulator files.  Looks for exact 0xFF
+ * sync bytes; no fault tolerance needed.
+ * Returns { frames: Uint8Array[], goodFrames, resyncs }.
+ */
+function stBuildFramesDirect(rawBits) {
+  const frames = [];
+  const FRAME_LEN = 96;
+  let resyncs = 0;
+
+  function readByte(pos) {
+    let b = 0;
+    for (let k = 0; k < 8; k++) {
+      if (pos + k < rawBits.length) b = (b << 1) | rawBits[pos + k];
+    }
+    return b;
+  }
+
+  // Find first 0xFF sync
+  let i = 0;
+  while (i < rawBits.length - FRAME_LEN) {
+    if (readByte(i) === 0xff) break;
+    i++;
+  }
+
+  while (i + FRAME_LEN <= rawBits.length) {
+    if (readByte(i) !== 0xff) {
+      // Lost sync — scan ahead
+      resyncs++;
+      let found = false;
+      for (let s = i + 1; s < rawBits.length - FRAME_LEN; s++) {
+        if (readByte(s) === 0xff) {
+          i = s;
+          found = true;
+          break;
+        }
+      }
+      if (!found) break;
+    }
+    const frame = new Uint8Array(12);
+    for (let b = 0; b < 12; b++) frame[b] = readByte(i + b * 8);
+    frames.push(frame);
+    i += FRAME_LEN;
+  }
+
+  return { frames, goodFrames: frames.length, resyncs };
+}
+
 // ─── stLoadFile: full forensic pipeline orchestrator ─────────────────────────
 /**
  * Load a signal or broadcast WAV through the 4-phase forensic engine:
@@ -2604,46 +2704,82 @@ async function stLoadFile(file) {
     const tdChan = audioBuffer.getChannelData(is4ch ? 2 : 0);
     const bdChan = audioBuffer.getChannelData(is4ch ? 3 : numCh > 1 ? 1 : 0);
 
-    // ── Phase 1: Signal Conditioning ───────────────────────────────────────
-    statusEl.textContent = `Phase 1 of 4 — Signal conditioning  [${numCh}ch @ ${SR} Hz]…`;
-    await new Promise((r) => setTimeout(r, 0));
+    // ── Determine decode path from source selector ──────────────────────────
+    const sourceMode = (() => {
+      const r = document.querySelector('input[name="st-source"]:checked');
+      return r ? r.value : "online";
+    })();
+    const isOnline = sourceMode === "online";
 
-    const tdSquared = stPreprocessSignal(tdChan, SR);
-    const bdSquared = stPreprocessSignal(bdChan, SR);
+    let tdRawBits, bdRawBits, tdResult, bdResult;
 
-    // ── Phase 2: Adaptive Clock Recovery ───────────────────────────────────
-    statusEl.textContent =
-      "Phase 2 of 4 — Adaptive clock recovery (wow/flutter)…";
-    await new Promise((r) => setTimeout(r, 0));
+    if (isOnline) {
+      // ── DIRECT PATH: Cyberstar Online / simulator-exported files ───────────
+      // Clean square-wave at exact 4800 bps — fixed clock, no filtering.
+      statusEl.textContent = `Decoding Cyberstar Online file  [${numCh}ch @ ${SR} Hz]…`;
+      await new Promise((r) => setTimeout(r, 0));
 
-    const tdRawBits = stExtractBitsAdaptive(tdSquared, SR);
-    const bdRawBits = stExtractBitsAdaptive(bdSquared, SR);
+      tdRawBits = stDirectDecode(tdChan, SR);
+      bdRawBits = stDirectDecode(bdChan, SR);
 
-    statusEl.textContent = `Phase 2 complete — TD: ${tdRawBits.length} bits, BD: ${bdRawBits.length} bits`;
-    await new Promise((r) => setTimeout(r, 0));
+      if (tdRawBits.length < 96 && bdRawBits.length < 96) {
+        throw new Error(
+          `Direct decode failed — TD: ${tdRawBits.length} bits, BD: ${bdRawBits.length} bits. ` +
+            "If this is an outside or archival recording, switch the source selector.",
+        );
+      }
 
-    if (tdRawBits.length < 96 && bdRawBits.length < 96) {
-      throw new Error(
-        `Bit extraction failed — TD: ${tdRawBits.length} bits, BD: ${bdRawBits.length} bits. ` +
-          "Is the file a valid BMC/RAE signal recording? " +
-          "For 4-channel broadcasts the signal must be on channels 3 & 4.",
-      );
+      statusEl.textContent = "Building frames…";
+      await new Promise((r) => setTimeout(r, 0));
+
+      tdResult = stBuildFramesDirect(tdRawBits);
+      bdResult = stBuildFramesDirect(bdRawBits);
+    } else {
+      // ── FORENSIC PATH: outside / archival recordings ───────────────────────
+      // Phase 1: Signal Conditioning
+      statusEl.textContent = `Phase 1 of 4 — Signal conditioning  [${numCh}ch @ ${SR} Hz]…`;
+      await new Promise((r) => setTimeout(r, 0));
+
+      const tdSquared = stPreprocessSignal(tdChan, SR);
+      const bdSquared = stPreprocessSignal(bdChan, SR);
+
+      // Phase 2: Adaptive Clock Recovery
+      statusEl.textContent =
+        "Phase 2 of 4 — Adaptive clock recovery (wow/flutter)…";
+      await new Promise((r) => setTimeout(r, 0));
+
+      tdRawBits = stExtractBitsAdaptive(tdSquared, SR);
+      bdRawBits = stExtractBitsAdaptive(bdSquared, SR);
+
+      statusEl.textContent = `Phase 2 complete — TD: ${tdRawBits.length} bits, BD: ${bdRawBits.length} bits`;
+      await new Promise((r) => setTimeout(r, 0));
+
+      if (tdRawBits.length < 96 && bdRawBits.length < 96) {
+        throw new Error(
+          `Bit extraction failed — TD: ${tdRawBits.length} bits, BD: ${bdRawBits.length} bits. ` +
+            "Is the file a valid BMC/RAE signal recording? " +
+            "For 4-channel broadcasts the signal must be on channels 3 & 4.",
+        );
+      }
+
+      // Phase 3: Sync Hunt + Frame Assembly
+      statusEl.textContent =
+        "Phase 3 of 4 — Sync hunting & fault-tolerant frame assembly…";
+      await new Promise((r) => setTimeout(r, 0));
+
+      tdResult = stResyncAndBuildFrames(tdRawBits);
+      bdResult = stResyncAndBuildFrames(bdRawBits);
     }
 
-    // ── Phase 3: Sync Hunt + Frame Assembly ────────────────────────────────
-    statusEl.textContent =
-      "Phase 3 of 4 — Sync hunting & fault-tolerant frame assembly…";
-    await new Promise((r) => setTimeout(r, 0));
-
-    const tdResult = stResyncAndBuildFrames(tdRawBits);
-    const bdResult = stResyncAndBuildFrames(bdRawBits);
-
     if (tdResult.goodFrames === 0 && bdResult.goodFrames === 0) {
+      const hint = isOnline
+        ? " If this is an archival or outside recording, switch the source selector."
+        : " The signal may be a different encoding or the channels may be swapped.";
       throw new Error(
         `No valid RAE frames found — diagnostic: ` +
           `TD ${tdRawBits.length} bits → ${tdResult.goodFrames} frames, ` +
-          `BD ${bdRawBits.length} bits → ${bdResult.goodFrames} frames. ` +
-          "The signal may be a different encoding or the channels may be swapped.",
+          `BD ${bdRawBits.length} bits → ${bdResult.goodFrames} frames.` +
+          hint,
       );
     }
 
