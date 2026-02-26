@@ -267,6 +267,67 @@
           </div>
         </section>
 
+        <!-- Signal Tester Section -->
+        <section class="control-panel reveal-stagger">
+          <h2>📻 Signal Tester</h2>
+          <p class="builder-info">
+            Load an exported signal WAV or 4-channel broadcast WAV to decode and
+            replay the BMC control signals through the simulator — a mini show
+            player for verifying show tapes before use in other systems.
+          </p>
+          <p class="builder-info" style="margin-top: -8px; opacity: 0.75">
+            Accepts: <strong>signal-only stereo WAV</strong> (TD = left, BD =
+            right) or <strong>4-channel broadcast WAV</strong> (Music L, Music
+            R, TD, BD).
+          </p>
+
+          <div class="st-file-row">
+            <label for="st-wav-input" class="btn btn-file"
+              >📂 Load Signal WAV</label
+            >
+            <input
+              type="file"
+              id="st-wav-input"
+              accept=".wav,.rshw,.cshw"
+              style="display: none"
+            />
+            <span id="st-file-name" class="file-name-display"
+              >No file loaded</span
+            >
+          </div>
+
+          <div
+            id="st-format-badge"
+            class="st-format-badge"
+            style="display: none"
+          ></div>
+
+          <div id="st-controls" class="st-controls" style="display: none">
+            <div class="player-controls">
+              <button id="st-play-btn" class="btn btn-primary" disabled>
+                ▶ Play
+              </button>
+              <button id="st-stop-btn" class="btn" disabled>⏹ Stop</button>
+            </div>
+
+            <div class="playback-info">
+              <div class="progress-container">
+                <label for="st-progress">Progress:</label>
+                <input
+                  type="range"
+                  id="st-progress"
+                  min="0"
+                  max="100"
+                  value="0"
+                />
+                <span id="st-time" class="st-time">00:00 / 00:00</span>
+              </div>
+            </div>
+
+            <div id="st-status" class="st-status">Ready</div>
+          </div>
+        </section>
+
         <!-- Manual Signal Generator Section -->
         <section class="control-panel reveal-stagger">
           <h2>Manual Signal Generator</h2>

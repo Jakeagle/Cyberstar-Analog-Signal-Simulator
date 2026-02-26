@@ -67,6 +67,21 @@ let songGainNode = null; // gain node for the song
 // localStorage key for persisted custom showtapes
 const CUSTOM_SHOWS_KEY = "cyberstar_custom_shows";
 
+// ── Signal Tester state ────────────────────────────────────────────────────
+const stState = {
+  frames: [], // [{td: Uint8Array(12), bd: Uint8Array(12)}, ...]
+  musicBuffer: null, // AudioBuffer for music channels (4ch files)
+  is4ch: false,
+  isPlaying: false,
+  currentFrame: 0,
+  totalFrames: 0,
+  totalDurationMs: 0,
+  playbackTimer: null,
+  musicSource: null,
+  musicGain: null,
+  startTime: 0, // Date.now() when play was pressed (adjusted for seek)
+};
+
 // ── v2: LED grid visual-latch state ────────────────────────────────────────
 const LED_LATCH_MS = 90; // ms to hold LED lit after slot clears
 const ledLastActive = new Array(8).fill(0); // timestamp of last activation per slot
@@ -367,6 +382,45 @@ function setupEventListeners() {
     const band = document.getElementById("custom-show-band").value;
     buildCustomShowtape(file, title, band);
   });
+
+  // ── Signal Tester wiring ────────────────────────────────────────────────
+  const stWavInput = document.getElementById("st-wav-input");
+  const stPlayBtn = document.getElementById("st-play-btn");
+  const stStopBtn = document.getElementById("st-stop-btn");
+  const stProgress = document.getElementById("st-progress");
+
+  if (stWavInput) {
+    stWavInput.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (file) stLoadFile(file);
+    });
+  }
+  if (stPlayBtn) {
+    stPlayBtn.addEventListener("click", () => {
+      if (stState.isPlaying) stPause();
+      else stPlay();
+    });
+  }
+  if (stStopBtn) {
+    stStopBtn.addEventListener("click", stStop);
+  }
+  if (stProgress) {
+    stProgress.addEventListener("input", (e) => {
+      const pct = parseInt(e.target.value) / 100;
+      const targetFrame = Math.floor(pct * stState.totalFrames);
+      stState.currentFrame = Math.max(
+        0,
+        Math.min(targetFrame, stState.totalFrames - 1),
+      );
+      stState.startTime =
+        Date.now() - Math.round((stState.currentFrame / 50) * 1000);
+      if (stState.isPlaying) {
+        stStopMusic();
+        stStartMusic(stState.currentFrame);
+      }
+      stUpdateProgress(stState.currentFrame);
+    });
+  }
 }
 
 /**
@@ -1899,8 +1953,8 @@ async function _renderBMCFrames(tape, statusEl) {
   // Byte 0 is never modified by character state — it is always 0xFF.
   const trackTD = new Uint8Array(12);
   const trackBD = new Uint8Array(12);
-  trackTD[0] = 0xFF;
-  trackBD[0] = 0xFF;
+  trackTD[0] = 0xff;
+  trackBD[0] = 0xff;
 
   const outL = new Float32Array(PILOT_SAMPLES + totalFrames * samplesPerFrame);
   const outR = new Float32Array(PILOT_SAMPLES + totalFrames * samplesPerFrame);
@@ -2156,6 +2210,384 @@ async function exportShowFile() {
 // ── (legacy stub kept for console compatibility) ───────────────────────────
 async function exportSignalWAV() {
   return exportSignalOnly();
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Signal Tester — load exported WAVs and replay through the live simulator
+// Accepts:  2-channel signal-only WAV  (L = TD, R = BD)
+//           4-channel broadcast WAV    (ch0 = Music L, ch1 = Music R,
+//                                       ch2 = TD, ch3 = BD)
+// ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Decode BMC bits from a Float32Array audio channel.
+ * SPB = samples-per-bit (10 at 48 kHz / 4800 bps).
+ * Compare the first vs second half of each bit window:
+ *   – different polarity  → mid-bit transition occurred → bit = 1
+ *   – same polarity       → no mid-bit transition       → bit = 0
+ */
+function stDecodeBMCBits(channel, startSample, SPB) {
+  const half = SPB >> 1;
+  const totalBits = Math.floor((channel.length - startSample) / SPB);
+  const bits = new Uint8Array(totalBits);
+
+  for (let i = 0; i < totalBits; i++) {
+    const s = startSample + i * SPB;
+    let firstSum = 0,
+      secondSum = 0;
+    for (let k = 0; k < half; k++) firstSum += channel[s + k];
+    for (let k = half; k < SPB; k++) secondSum += channel[s + k];
+    // Treat near-zero sums as ambiguous (noise floor) — default to 0
+    const SIG = 0.02 * SPB;
+    if (Math.abs(firstSum) < SIG && Math.abs(secondSum) < SIG) {
+      bits[i] = 0;
+      continue;
+    }
+    bits[i] = firstSum > 0 !== secondSum > 0 ? 1 : 0;
+  }
+  return bits;
+}
+
+/**
+ * Convert a flat bit array (LSB-first, matching BMC encoding) into bytes.
+ */
+function stBitsToBytes(bits, bitOffset, numBytes) {
+  const bytes = new Uint8Array(numBytes);
+  for (let b = 0; b < numBytes; b++) {
+    let val = 0;
+    for (let bit = 0; bit < 8; bit++) {
+      const idx = bitOffset + b * 8 + bit;
+      if (idx < bits.length) val |= (bits[idx] & 1) << bit;
+    }
+    bytes[b] = val;
+  }
+  return bytes;
+}
+
+/**
+ * Find the first frame-aligned bit position where:
+ *   byte 0 = 0xFF (RAE sync byte)  AND  at least one subsequent byte ≠ 0xFF
+ * This skips the pilot tone (which is all-1 bits) and lands on real data.
+ * Falls back to the first 0xFF byte position if no data frame is found.
+ */
+function stFindFrameSync(bits) {
+  const BITS_PER_FRAME = 96;
+  let firstFF = -1;
+
+  for (let i = 0; i <= bits.length - BITS_PER_FRAME; i++) {
+    // Check for 0xFF sync byte (8 consecutive 1-bits)
+    let allOne = true;
+    for (let b = 0; b < 8; b++) {
+      if (!bits[i + b]) {
+        allOne = false;
+        break;
+      }
+    }
+    if (!allOne) continue;
+    if (firstFF === -1) firstFF = i; // record earliest 0xFF position
+
+    // Verify at least one data byte is not 0xFF (= we are past the pilot)
+    let hasData = false;
+    for (let byteIdx = 1; byteIdx < 12; byteIdx++) {
+      let byteAllOne = true;
+      for (let b = 0; b < 8; b++) {
+        if (!bits[i + byteIdx * 8 + b]) {
+          byteAllOne = false;
+          break;
+        }
+      }
+      if (!byteAllOne) {
+        hasData = true;
+        break;
+      }
+    }
+    if (hasData) return i; // first real data frame
+  }
+  return firstFF >= 0 ? firstFF : 0; // fallback: first 0xFF or bit 0
+}
+
+/**
+ * Load and BMC-decode a WAV file for the signal tester.
+ * Automatically detects 2-channel (signal-only) vs ≥4-channel (broadcast).
+ */
+async function stLoadFile(file) {
+  const statusEl = document.getElementById("st-status");
+  const nameEl = document.getElementById("st-file-name");
+  const badge = document.getElementById("st-format-badge");
+  const controls = document.getElementById("st-controls");
+  const playBtn = document.getElementById("st-play-btn");
+  const stopBtn = document.getElementById("st-stop-btn");
+
+  stStop(); // halt any existing playback
+  stState.frames = [];
+  stState.musicBuffer = null;
+  stState.is4ch = false;
+
+  nameEl.textContent = file.name;
+  badge.style.display = "none";
+  controls.style.display = "none";
+  if (playBtn) playBtn.disabled = true;
+  if (stopBtn) stopBtn.disabled = true;
+  statusEl.style.color = "";
+  statusEl.textContent = "Decoding audio…";
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const ac = signalGenerator.audioContext;
+    if (ac.state === "suspended") await ac.resume();
+
+    // decodeAudioData resamples to the context's native rate (48 kHz).
+    const audioBuffer = await ac.decodeAudioData(arrayBuffer);
+    const numCh = audioBuffer.numberOfChannels;
+    const SR = audioBuffer.sampleRate;
+    const SPB = Math.round(SR / 4800); // 10 at 48 kHz / 4800 bps
+
+    const is4ch = numCh >= 4;
+    stState.is4ch = is4ch;
+
+    // Select signal channels
+    const tdChan = audioBuffer.getChannelData(is4ch ? 2 : 0);
+    const bdChan = audioBuffer.getChannelData(is4ch ? 3 : numCh > 1 ? 1 : 0);
+
+    statusEl.textContent = `${numCh}ch @ ${SR} Hz — locating frame sync…`;
+    await new Promise((r) => setTimeout(r, 0)); // yield to browser
+
+    // Decode all TD bits to find the sync position
+    const tdBitsAll = stDecodeBMCBits(tdChan, 0, SPB);
+    const syncBit = stFindFrameSync(tdBitsAll);
+    const syncSample = syncBit * SPB;
+
+    statusEl.textContent = `Frame sync at bit ${syncBit}. Decoding frames…`;
+    await new Promise((r) => setTimeout(r, 0));
+
+    const tdBits = tdBitsAll.slice(syncBit);
+    const bdBits = stDecodeBMCBits(bdChan, syncSample, SPB);
+
+    const BITS_PER_FRAME = 96;
+    const totalFrames = Math.floor(
+      Math.min(tdBits.length, bdBits.length) / BITS_PER_FRAME,
+    );
+    const frames = [];
+
+    for (let f = 0; f < totalFrames; f++) {
+      const off = f * BITS_PER_FRAME;
+      frames.push({
+        td: stBitsToBytes(tdBits, off, 12),
+        bd: stBitsToBytes(bdBits, off, 12),
+      });
+    }
+
+    stState.frames = frames;
+    stState.totalFrames = totalFrames;
+    stState.totalDurationMs = Math.round((totalFrames / 50) * 1000);
+
+    // For 4ch files, cache the music channels for playback
+    if (is4ch && numCh >= 2) {
+      const musicBuf = ac.createBuffer(2, audioBuffer.length, SR);
+      musicBuf.copyToChannel(audioBuffer.getChannelData(0), 0);
+      musicBuf.copyToChannel(audioBuffer.getChannelData(1), 1);
+      stState.musicBuffer = musicBuf;
+    }
+
+    // Detect and describe format
+    const fmtLabel = is4ch
+      ? "4-CHANNEL BROADCAST  ·  Music L / Music R / TD / BD"
+      : numCh >= 2
+        ? "SIGNAL ONLY  ·  Stereo  ·  TD left  /  BD right"
+        : "SIGNAL ONLY  ·  Mono  ·  TD only";
+
+    badge.textContent = fmtLabel;
+    badge.className = `st-format-badge ${is4ch ? "badge-4ch" : "badge-2ch"}`;
+    badge.style.display = "block";
+    controls.style.display = "block";
+    if (playBtn) playBtn.disabled = false;
+    if (stopBtn) stopBtn.disabled = false;
+
+    stUpdateProgress(0);
+    statusEl.style.color = "#0f8";
+    statusEl.textContent = `✓ ${totalFrames} frames decoded  ·  ${formatTime(stState.totalDurationMs)}  ·  ${fmtLabel}`;
+
+    updateSignalMonitor(
+      `Signal Tester: loaded "${file.name}" — ${totalFrames} frames  (${fmtLabel})`,
+    );
+  } catch (err) {
+    statusEl.style.color = "#f44";
+    statusEl.textContent = `✗ ${err.message}`;
+    console.error("Signal Tester decode error:", err);
+  }
+}
+
+/**
+ * Start (or resume) signal tester playback.
+ */
+function stPlay() {
+  if (stState.frames.length === 0) return;
+  if (stState.isPlaying) return;
+
+  // Restart from beginning if tape is at the end
+  if (stState.currentFrame >= stState.totalFrames - 1) {
+    stState.currentFrame = 0;
+  }
+
+  stState.isPlaying = true;
+  stState.startTime =
+    Date.now() - Math.round((stState.currentFrame / 50) * 1000);
+
+  const playBtn = document.getElementById("st-play-btn");
+  const statusEl = document.getElementById("st-status");
+  if (playBtn) playBtn.textContent = "⏸ Pause";
+  if (statusEl) {
+    statusEl.style.color = "";
+    statusEl.textContent = "Playing…";
+  }
+  document.getElementById("st-stop-btn").disabled = false;
+
+  if (stState.is4ch && stState.musicBuffer) stStartMusic(stState.currentFrame);
+
+  stState.playbackTimer = setInterval(stPlaybackTick, 20); // 50 fps
+}
+
+/**
+ * Pause signal tester playback, keeping the current frame position.
+ */
+function stPause() {
+  if (!stState.isPlaying) return;
+  stState.isPlaying = false;
+  clearInterval(stState.playbackTimer);
+  stState.playbackTimer = null;
+  stStopMusic();
+
+  const playBtn = document.getElementById("st-play-btn");
+  const statusEl = document.getElementById("st-status");
+  if (playBtn) playBtn.textContent = "▶ Play";
+  if (statusEl)
+    statusEl.textContent = `Paused — frame ${stState.currentFrame} / ${stState.totalFrames}`;
+}
+
+/**
+ * Stop signal tester playback and reset to frame 0.
+ */
+function stStop() {
+  stState.isPlaying = false;
+  stState.currentFrame = 0;
+  clearInterval(stState.playbackTimer);
+  stState.playbackTimer = null;
+  stStopMusic();
+
+  const playBtn = document.getElementById("st-play-btn");
+  const statusEl = document.getElementById("st-status");
+  if (playBtn) playBtn.textContent = "▶ Play";
+  if (statusEl && stState.frames.length > 0) {
+    statusEl.style.color = "";
+    statusEl.textContent = "Ready";
+  }
+  stUpdateProgress(0);
+
+  // Clear the live signal buffers so the LED grid returns to idle
+  if (typeof signalGenerator !== "undefined") {
+    signalGenerator.trackTD.fill(0);
+    signalGenerator.trackBD.fill(0);
+  }
+}
+
+/**
+ * setInterval tick at 20 ms — advances the playback frame and pushes data
+ * directly into the signal generator's live buffers.
+ * The existing updateLEDGrid() poll (running at ~25 fps) picks up changes.
+ */
+function stPlaybackTick() {
+  if (!stState.isPlaying || stState.frames.length === 0) return;
+
+  const elapsed = Date.now() - stState.startTime;
+  const targetFrame = Math.min(
+    Math.floor(elapsed / 20), // 20 ms per frame = 50 fps
+    stState.totalFrames - 1,
+  );
+
+  if (stState.currentFrame < targetFrame) stState.currentFrame = targetFrame;
+
+  const frame = stState.frames[stState.currentFrame];
+  if (frame) {
+    signalGenerator.trackTD.set(frame.td);
+    signalGenerator.trackBD.set(frame.bd);
+  }
+
+  stUpdateProgress(stState.currentFrame);
+
+  // End of tape
+  if (stState.currentFrame >= stState.totalFrames - 1) {
+    clearInterval(stState.playbackTimer);
+    stState.playbackTimer = null;
+    stState.isPlaying = false;
+    stStopMusic();
+    const playBtn = document.getElementById("st-play-btn");
+    const statusEl = document.getElementById("st-status");
+    if (playBtn) playBtn.textContent = "▶ Play";
+    if (statusEl) {
+      statusEl.style.color = "#0f8";
+      statusEl.textContent = "✓ Playback complete";
+    }
+    // Leave the last frame's data in the signal buffers so LEDs show final state
+  }
+}
+
+/**
+ * Begin playing the cached music buffer from a given frame offset.
+ */
+function stStartMusic(fromFrame) {
+  if (!stState.musicBuffer) return;
+  stStopMusic();
+
+  const ac = signalGenerator.audioContext;
+  stState.musicGain = ac.createGain();
+  stState.musicGain.gain.setValueAtTime(
+    currentPlaybackState.volume,
+    ac.currentTime,
+  );
+  stState.musicGain.connect(ac.destination);
+
+  stState.musicSource = ac.createBufferSource();
+  stState.musicSource.buffer = stState.musicBuffer;
+  stState.musicSource.connect(stState.musicGain);
+  stState.musicSource.start(ac.currentTime, fromFrame / 50);
+  stState.musicSource.onended = () => {
+    if (stState.isPlaying) stStop();
+  };
+}
+
+/**
+ * Stop (and discard) the music AudioBufferSourceNode.
+ */
+function stStopMusic() {
+  if (stState.musicSource) {
+    try {
+      stState.musicSource.stop(0);
+    } catch (_) {}
+    stState.musicSource.disconnect();
+    stState.musicSource = null;
+  }
+  if (stState.musicGain) {
+    stState.musicGain.disconnect();
+    stState.musicGain = null;
+  }
+}
+
+/**
+ * Refresh the signal tester progress bar and time readout.
+ */
+function stUpdateProgress(currentFrame) {
+  const pct =
+    stState.totalFrames > 0
+      ? Math.round((currentFrame / stState.totalFrames) * 100)
+      : 0;
+  const progressEl = document.getElementById("st-progress");
+  const timeEl = document.getElementById("st-time");
+  if (progressEl) progressEl.value = pct;
+  if (timeEl) {
+    const cur = formatTime(Math.round((currentFrame / 50) * 1000));
+    const tot = formatTime(stState.totalDurationMs);
+    timeEl.textContent = `${cur} / ${tot}`;
+  }
 }
 
 /**
