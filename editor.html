@@ -435,6 +435,106 @@
       #timeline-wrap::-webkit-scrollbar-corner {
         background: #0d0d1a;
       }
+
+      /* ── NEW SHOW MODAL ──────────────────────────────────────── */
+      #new-show-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.65);
+        z-index: 1000;
+        align-items: center;
+        justify-content: center;
+      }
+      #new-show-overlay.open {
+        display: flex;
+      }
+      #new-show-modal {
+        background: #1a1a2e;
+        border: 1px solid #2a2a44;
+        border-radius: 10px;
+        padding: 28px 32px;
+        width: 380px;
+        max-width: 95vw;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+      }
+      #new-show-modal h3 {
+        font-size: 1.15em;
+        color: #ddeeff;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .ns-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-bottom: 16px;
+      }
+      .ns-field label {
+        font-size: 0.8em;
+        color: #888899;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+      }
+      .ns-field input,
+      .ns-field select {
+        background: #0d0d1a;
+        border: 1px solid #2a2a44;
+        border-radius: 5px;
+        color: #c8c8e0;
+        padding: 7px 10px;
+        font-size: 0.92em;
+        outline: none;
+        transition: border-color 0.15s;
+      }
+      .ns-field input:focus,
+      .ns-field select:focus {
+        border-color: #00c8ff88;
+      }
+      .ns-dur-row {
+        display: flex;
+        gap: 8px;
+      }
+      .ns-dur-row input {
+        flex: 1;
+        text-align: center;
+      }
+      .ns-dur-sep {
+        align-self: center;
+        color: #666680;
+        font-size: 1.1em;
+      }
+      .ns-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 22px;
+      }
+      .ns-actions button {
+        flex: 1;
+        padding: 8px;
+        border-radius: 5px;
+        border: 1px solid #2a2a44;
+        cursor: pointer;
+        font-size: 0.88em;
+        font-weight: 600;
+      }
+      #ns-create {
+        background: rgba(0, 200, 100, 0.12);
+        border-color: rgba(0, 200, 100, 0.4);
+        color: #00d464;
+      }
+      #ns-create:hover {
+        background: rgba(0, 200, 100, 0.22);
+      }
+      #ns-cancel {
+        background: rgba(255, 255, 255, 0.04);
+        color: #888899;
+      }
+      #ns-cancel:hover {
+        background: rgba(255, 255, 255, 0.09);
+      }
     </style>
   </head>
   <body>
@@ -442,6 +542,9 @@
       <!-- ── TOOLBAR ── -->
       <div id="toolbar">
         <div class="tb-group">
+          <button id="btn-new-show" class="tb-btn tb-btn-green">
+            ✚ New Show
+          </button>
           <label for="json-input" class="tb-btn">📂 Load Show</label>
           <input type="file" id="json-input" accept=".json,.cybershow.json" />
           <label for="wav-input" class="tb-btn">🎵 Load WAV</label>
@@ -486,24 +589,36 @@
           <div class="empty-icon">🎬</div>
           <h2>Cyberstar Show Editor</h2>
           <p>
-            Load a <strong>.cybershow.json</strong> file to open the timeline.
+            Start a brand-new show, or open an existing
+            <strong>.cybershow.json</strong> file.
           </p>
-          <p>
-            Then load the original WAV to audition your show while you edit.
-          </p>
-          <label
-            for="json-input-2"
-            class="tb-btn tb-btn-green"
+          <div
             style="
-              display: inline-flex;
-              margin-top: 20px;
-              padding: 10px 24px;
-              font-size: 0.95em;
+              display: flex;
+              gap: 12px;
+              justify-content: center;
+              margin-top: 22px;
+              flex-wrap: wrap;
             "
           >
-            📂 Load Show JSON
-          </label>
+            <button
+              id="btn-new-show-empty"
+              class="tb-btn tb-btn-green"
+              style="padding: 10px 24px; font-size: 0.95em"
+            >
+              ✚ New Show
+            </button>
+            <label
+              for="json-input-2"
+              class="tb-btn"
+              style="padding: 10px 24px; font-size: 0.95em; cursor: pointer"
+              >📂 Load Show JSON</label
+            >
+          </div>
           <input type="file" id="json-input-2" accept=".json,.cybershow.json" />
+          <p style="margin-top: 18px; font-size: 0.82em">
+            Load a WAV file after opening a show to audition while you edit.
+          </p>
         </div>
       </div>
 
@@ -521,6 +636,56 @@
           <div id="tracks-container">
             <div id="playhead"></div>
             <div id="drag-preview"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── NEW SHOW MODAL ── -->
+      <div id="new-show-overlay">
+        <div id="new-show-modal">
+          <h3>✚ New Show</h3>
+          <div class="ns-field">
+            <label for="ns-title">Show Title</label>
+            <input
+              id="ns-title"
+              type="text"
+              placeholder="My Cyberstar Show"
+              maxlength="80"
+            />
+          </div>
+          <div class="ns-field">
+            <label for="ns-band">Band</label>
+            <select id="ns-band">
+              <option value="rock">Rock-afire Explosion (RFE)</option>
+              <option value="munch">Munch's Make Believe Band (MMBB)</option>
+            </select>
+          </div>
+          <div class="ns-field">
+            <label>Duration</label>
+            <div class="ns-dur-row">
+              <input
+                id="ns-dur-min"
+                type="number"
+                min="0"
+                max="59"
+                value="3"
+                title="Minutes"
+              />
+              <span class="ns-dur-sep">m</span>
+              <input
+                id="ns-dur-sec"
+                type="number"
+                min="0"
+                max="59"
+                value="30"
+                title="Seconds"
+              />
+              <span class="ns-dur-sep">s</span>
+            </div>
+          </div>
+          <div class="ns-actions">
+            <button id="ns-create">Create Show</button>
+            <button id="ns-cancel">Cancel</button>
           </div>
         </div>
       </div>
@@ -679,6 +844,65 @@
         if (onFrame !== null)
           blocks.push({ startFrame: onFrame, endFrame: totalFrames });
         return blocks;
+      }
+
+      /* ============================================================
+   NEW SHOW
+   ============================================================ */
+      function openNewShowModal() {
+        document.getElementById("new-show-overlay").classList.add("open");
+        // Focus title input after transition
+        setTimeout(() => document.getElementById("ns-title").focus(), 50);
+      }
+
+      function closeNewShowModal() {
+        document.getElementById("new-show-overlay").classList.remove("open");
+      }
+
+      function createNewShow() {
+        const title =
+          document.getElementById("ns-title").value.trim() || "Untitled Show";
+        const band = document.getElementById("ns-band").value;
+        const mins = Math.max(
+          0,
+          parseInt(document.getElementById("ns-dur-min").value) || 0,
+        );
+        const secs = Math.max(
+          0,
+          Math.min(
+            59,
+            parseInt(document.getElementById("ns-dur-sec").value) || 0,
+          ),
+        );
+        const durationMs = (mins * 60 + secs) * 1000 || 30000; // default 30s if zero
+        const frames = msToFrame(durationMs);
+
+        showData = {
+          cyberstar_show: true,
+          version: "3.0",
+          fps: FPS,
+          title,
+          band,
+          duration_frames: frames,
+          duration_ms: durationMs,
+          characters: {},
+        };
+
+        totalFrames = frames;
+        closeNewShowModal();
+        buildRowMeta(band);
+        buildEditor();
+
+        document.getElementById("show-title").textContent = title;
+        const badge = document.getElementById("band-badge");
+        badge.textContent = band === "munch" ? "MMBB" : "RFE";
+        badge.className = `band-badge band-${band}`;
+        badge.style.display = "";
+        elBtnExport.disabled = false;
+
+        setStatus(
+          `New show "${title}" — ${frames} frames (${frameToTimestamp(frames)}). Start drawing signal blocks on the timeline.`,
+        );
       }
 
       /* ============================================================
@@ -1307,6 +1531,30 @@
         bindFile("json-input", loadShow);
         bindFile("json-input-2", loadShow);
         bindFile("wav-input", loadWAV);
+
+        // New Show buttons + modal
+        document
+          .getElementById("btn-new-show")
+          .addEventListener("click", openNewShowModal);
+        document
+          .getElementById("btn-new-show-empty")
+          .addEventListener("click", openNewShowModal);
+        document
+          .getElementById("ns-create")
+          .addEventListener("click", createNewShow);
+        document
+          .getElementById("ns-cancel")
+          .addEventListener("click", closeNewShowModal);
+        document
+          .getElementById("new-show-overlay")
+          .addEventListener("click", (e) => {
+            if (e.target === document.getElementById("new-show-overlay"))
+              closeNewShowModal();
+          });
+        document.getElementById("ns-title").addEventListener("keydown", (e) => {
+          if (e.key === "Enter") createNewShow();
+          if (e.key === "Escape") closeNewShowModal();
+        });
 
         // Transport
         elBtnPlay.addEventListener("click", startPlayback);

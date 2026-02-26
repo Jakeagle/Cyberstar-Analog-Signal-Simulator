@@ -1,0 +1,25 @@
+# 🔧 Final Optimization: Archive-Grade Signal Engine
+
+## 1. Implement Sub-Sample Bit Timing
+To prevent "Frame Drift" (which causes the Rolfe Christmas Tree bug), do not round bit samples. Use an accumulator to track the exact timing of the 4800 Baud clock.
+- **Samples per bit:** 9.1875
+- **Goal:** Ensure the TDM frame (96 bits) ends exactly at sample 882 (44100 / 50Hz).
+
+## 2. Implement "High-Frequency Screech" (BMC Logic)
+Update the `generateBMCSignal` function:
+- **Every Bit:** Toggle the signal at the start of the bit period.
+- **If Bit is '1':** Toggle the signal AGAIN exactly halfway through the bit period (at sample 4.5).
+- **If Bit is '0':** Do NOT toggle in the middle.
+- **Waveform:** Use a hard `1.0` and `-1.0` (Square Wave).
+
+## 3. Strict TD/BD Track Isolation
+Ensure the Stereo output is hard-panned according to the RFE Spec:
+- **LEFT CHANNEL (TD):** Only generate bits defined in the TD BitMap (Rolfe, Dook, Fats, Earl).
+- **RIGHT CHANNEL (BD):** Only generate bits defined in the BD BitMap (Beach Bear, Mitzi, Billy Bob).
+- **Zero-Padding:** If a bit is not defined in the bitmap, it MUST be a logical '0' (2400Hz tone), not silence.
+
+## 4. The "Rolfe Seizure" State-Lock
+Inside the `update` loop:
+- Store the `previousBitState` for every character.
+- Only trigger the UI LED and the System Log if `currentBitState !== previousBitState`.
+- This will stop the log spam and the flickering.
