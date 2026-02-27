@@ -7,6 +7,59 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <!-- Remodeling Overlay -->
+    <div
+      id="remodeling-overlay"
+      style="
+        position: fixed;
+        inset: 0;
+        z-index: 999999;
+        background: #0d0d1a;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        user-select: none;
+        pointer-events: all;
+      "
+    >
+      <div
+        style="
+          text-align: center;
+          color: #e0e0ff;
+          font-family: &quot;Courier New&quot;, monospace;
+          padding: 2rem;
+        "
+      >
+        <div style="font-size: 4rem; margin-bottom: 1.5rem">🔧</div>
+        <h1
+          style="
+            font-size: 2rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            margin-bottom: 1rem;
+            color: #a0a0ff;
+          "
+        >
+          Under Remodeling
+        </h1>
+        <p style="font-size: 1.1rem; opacity: 0.75; letter-spacing: 0.05em">
+          Please check back later.
+        </p>
+      </div>
+    </div>
+    <script>
+      (function () {
+        const el = document.getElementById("remodeling-overlay");
+        function lock(e) {
+          e.stopPropagation();
+          e.preventDefault();
+        }
+        el.addEventListener("click", lock, true);
+        el.addEventListener("keydown", lock, true);
+        document.addEventListener("keydown", lock, true);
+      })();
+    </script>
     <!-- Cyberstar Intro Overlay -->
     <div id="intro-overlay" class="intro-overlay" style="cursor: pointer">
       <video
