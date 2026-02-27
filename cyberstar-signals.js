@@ -23,7 +23,7 @@ class CyberstarSignalGenerator {
     // Pianocorder / RAE standard — 4500 bps, 16-byte (128-bit) frames, ~35fps
     this.bitrate = 4500;
     this.frameRate = 35.15625; // 4500 bps / 128 bits per frame
-    this.amplitude = options.amplitude || 0.95;
+    this.amplitude = options.amplitude || 0.6;
     this.noiseLevel = options.noiseLevel || 0.015;
     this.lowpassCutoff = 8000; // preserving the "screech" high harmonics
 
@@ -480,9 +480,9 @@ class CyberstarSignalGenerator {
     const SAMPLE_RATE = 44100; // STPE requires 44.1 kHz
     const NUM_CHANNELS = 4;
     const BITS = 16;
-    // 0.95 gives the STPE bit-stripper a strong, clean square wave while
-    // keeping a small safety margin below 0 dBFS to prevent clipping.
-    const SIGNAL_PEAK = 0.95;
+    // 0.6 keeps the BMC signal well within SPTE's detection range without
+    // overdriving the decoder input — real tapes ran at approx ±0.6 amplitude.
+    const SIGNAL_PEAK = 0.6;
 
     const len = tdData.length;
     const mL = musicL || new Float32Array(len);
