@@ -1,0 +1,196 @@
+{
+  "cyberstar_show": true,
+  "version": "3.0",
+  "fps": 50,
+  "title": "Arm Raises (2)",
+  "band": "rock",
+  "duration_frames": 10500,
+  "duration_ms": 210000,
+  "characters": {
+    "Dook LaRue": {
+      "track": "TD",
+      "signals": [
+        {
+          "frame": 3,
+          "timestamp": "0:00.060",
+          "movement": "arm_right_swing",
+          "bit": 33,
+          "state": true,
+          "note": ""
+        },
+        {
+          "frame": 4,
+          "timestamp": "0:00.080",
+          "movement": "arm_left_swing",
+          "bit": 32,
+          "state": true,
+          "note": ""
+        },
+        {
+          "frame": 1357,
+          "timestamp": "0:27.140",
+          "movement": "arm_right_swing",
+          "bit": 33,
+          "state": false,
+          "note": ""
+        },
+        {
+          "frame": 1357,
+          "timestamp": "0:27.140",
+          "movement": "arm_left_swing",
+          "bit": 32,
+          "state": false,
+          "note": ""
+        }
+      ]
+    },
+    "Fatz": {
+      "track": "TD",
+      "signals": [
+        {
+          "frame": 2,
+          "timestamp": "0:00.040",
+          "movement": "arm_right_swing",
+          "bit": 57,
+          "state": true,
+          "note": ""
+        },
+        {
+          "frame": 9,
+          "timestamp": "0:00.180",
+          "movement": "arm_left_swing",
+          "bit": 56,
+          "state": true,
+          "note": ""
+        },
+        {
+          "frame": 1360,
+          "timestamp": "0:27.200",
+          "movement": "arm_right_swing",
+          "bit": 57,
+          "state": false,
+          "note": ""
+        },
+        {
+          "frame": 1361,
+          "timestamp": "0:27.220",
+          "movement": "arm_left_swing",
+          "bit": 56,
+          "state": false,
+          "note": ""
+        }
+      ]
+    },
+    "Beach Bear": {
+      "track": "BD",
+      "signals": [
+        {
+          "frame": 4,
+          "timestamp": "0:00.080",
+          "movement": "arm_right_raise",
+          "bit": 10,
+          "state": true,
+          "note": ""
+        },
+        {
+          "frame": 4,
+          "timestamp": "0:00.080",
+          "movement": "guitar_raise",
+          "bit": 4,
+          "state": true,
+          "note": ""
+        },
+        {
+          "frame": 1365,
+          "timestamp": "0:27.300",
+          "movement": "arm_right_raise",
+          "bit": 10,
+          "state": false,
+          "note": ""
+        },
+        {
+          "frame": 1370,
+          "timestamp": "0:27.400",
+          "movement": "guitar_raise",
+          "bit": 4,
+          "state": false,
+          "note": ""
+        }
+      ]
+    },
+    "Mitzi": {
+      "track": "BD",
+      "signals": [
+        {
+          "frame": 3,
+          "timestamp": "0:00.060",
+          "movement": "arm_right_raise",
+          "bit": 17,
+          "state": true,
+          "note": ""
+        },
+        {
+          "frame": 6,
+          "timestamp": "0:00.120",
+          "movement": "arm_left_raise",
+          "bit": 22,
+          "state": true,
+          "note": ""
+        },
+        {
+          "frame": 1261,
+          "timestamp": "0:25.220",
+          "movement": "arm_left_raise",
+          "bit": 22,
+          "state": false,
+          "note": ""
+        },
+        {
+          "frame": 1269,
+          "timestamp": "0:25.380",
+          "movement": "arm_right_raise",
+          "bit": 17,
+          "state": false,
+          "note": ""
+        }
+      ]
+    },
+    "Billy Bob": {
+      "track": "BD",
+      "signals": [
+        {
+          "frame": 3,
+          "timestamp": "0:00.060",
+          "movement": "guitar_raise",
+          "bit": 39,
+          "state": true,
+          "note": ""
+        },
+        {
+          "frame": 4,
+          "timestamp": "0:00.080",
+          "movement": "arm_right_raise",
+          "bit": 55,
+          "state": true,
+          "note": ""
+        },
+        {
+          "frame": 1502,
+          "timestamp": "0:30.040",
+          "movement": "guitar_raise",
+          "bit": 39,
+          "state": false,
+          "note": ""
+        },
+        {
+          "frame": 1511,
+          "timestamp": "0:30.220",
+          "movement": "arm_right_raise",
+          "bit": 55,
+          "state": false,
+          "note": ""
+        }
+      ]
+    }
+  }
+}

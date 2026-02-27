@@ -1349,7 +1349,7 @@ function importShowJSON(file) {
         band: obj.band,
         bpm: obj.bpm || null,
         duration,
-        bitrate: 4800,
+        bitrate: 4410,
         isCustom: true,
         sequences,
       };
@@ -1893,23 +1893,24 @@ async function _renderBMCFrames(tape, statusEl) {
     if (i < 8) slotMap.set(name, i);
   });
 
-  // Pianocorder / STPE standard: 44.1kHz, 4500 bps, 128-bit (16-byte) frames @ ~35fps
-  // RetroMation/Transmutate standard: 48kHz, 4800 bps, 128-bit (16-byte) frames @ 37.5fps
-  // 48000 / 4800 = exactly 10 samples per bit — integer-perfect, no accumulator drift
-  const SAMPLE_RATE = 48000;
-  const BITRATE = 4800;
-  const FRAME_RATE = 37.5; // 4800 bps / 128 bits per frame
+  // RetroMation/Transmutate true standard (proven from .shw forensics):
+  // 44100 Hz / 4410 bps = exactly 10 samples per bit — edge gaps in reference .shw all = 5 samples
+  // 12-byte (96-bit) frames — 0xFF sync at byte 0, 11 data bytes, verified by 0xFF every 12 bytes
+  // Frame rate: 4410 bps / 96 bits = 45.9375 fps
+  const SAMPLE_RATE = 44100;
+  const BITRATE = 4410;
+  const FRAME_RATE = 45.9375; // 4410 bps / 96 bits per frame
   // Export renders at full scale; exportBroadcastWav applies the final ±SIGNAL_PEAK clamp.
   const scale = 1.0;
   const FRAME_MS = 1000 / FRAME_RATE;
-  const bitsPerFrame = 16 * 8; // 128 bits — 16-byte frame
+  const bitsPerFrame = 12 * 8; // 96 bits — 12-byte frame (1 sync + 11 data)
   const samplesPerBit = SAMPLE_RATE / BITRATE; // exactly 10.0
-  const samplesPerFrame = Math.ceil(bitsPerFrame * samplesPerBit); // 1280 samples
+  const samplesPerFrame = Math.ceil(bitsPerFrame * samplesPerBit); // 960 samples
   const totalFrames = Math.ceil(tape.duration / FRAME_MS);
 
-  // Pilot tone: 3.0 s of logical-1 bits at 4800 bps so Transmutate can lock its clock
-  const PILOT_BITS = BITRATE * 3; // 14400 bits = 3 seconds of pilot
-  const PILOT_SAMPLES = Math.round(PILOT_BITS * samplesPerBit); // 144000 samples = 3 s
+  // Pilot tone: 3.0 s of logical-1 bits at 4410 bps so Transmutate can lock its clock
+  const PILOT_BITS = BITRATE * 3; // 13230 bits = 3 seconds of pilot
+  const PILOT_SAMPLES = Math.round(PILOT_BITS * samplesPerBit); // 132300 samples = 3 s
 
   // MSB-first bit extraction — Pianocorder / RAE standard (MSB sent first)
   function encodeBMCBits(bytes) {
@@ -1948,7 +1949,7 @@ async function _renderBMCFrames(tape, statusEl) {
     return w;
   }
 
-  // Pilot tone: PILOT_BITS of logical-1 BMC (4500 bps screech for decoder clock lock)
+  // Pilot tone: PILOT_BITS of logical-1 BMC (4410 bps screech for decoder clock lock)
   function makePilotTone() {
     const w = new Float32Array(PILOT_SAMPLES);
     let level = 1.0;
@@ -1968,12 +1969,12 @@ async function _renderBMCFrames(tape, statusEl) {
     return w;
   }
 
-  // Pianocorder Framing: byte 0 of every 16-byte TDM frame MUST be 0xFF as the
-  // sync marker. The STPE decoder uses this pattern to locate frame boundaries.
-  // Character control data occupies bytes 1-15 (120 bits of animation data).
+  // RetroMation Framing: byte 0 of every 12-byte frame MUST be 0xFF as the
+  // sync marker. The SPTE/Transmutate decoder uses this pattern to locate frame boundaries.
+  // Character control data occupies bytes 1-11 (88 bits of animation data).
   // Byte 0 is never modified by character state — it is always 0xFF.
-  const trackTD = new Uint8Array(16);
-  const trackBD = new Uint8Array(16);
+  const trackTD = new Uint8Array(12);
+  const trackBD = new Uint8Array(12);
   trackTD[0] = 0xff;
   trackBD[0] = 0xff;
 
@@ -2016,8 +2017,8 @@ async function _renderBMCFrames(tape, statusEl) {
             // Bits 88-95 (lighting specials only) exceed the 11 data bytes
             // available and are safely skipped.
             const byteIdx = Math.floor(m.bit / 8) + 1;
-            if (byteIdx >= 16) continue; // out of frame bounds — skip
-            const bitPos = 7 - (m.bit % 8); // MSB-first — Pianocorder standard
+            if (byteIdx >= 12) continue; // out of frame bounds — skip (bytes 0–11 only)
+            const bitPos = 7 - (m.bit % 8); // MSB-first — RetroMation/SPTE standard
             if (seq.state) buf[byteIdx] |= 1 << bitPos;
             else buf[byteIdx] &= ~(1 << bitPos);
           }
@@ -2025,13 +2026,13 @@ async function _renderBMCFrames(tape, statusEl) {
       } else if (seq.data && seq.character && seq.character !== "All") {
         const slot = slotMap.get(seq.character);
         // +1 byte offset for RAE sync byte; keep byte 0 = 0xFF
-        if (slot !== undefined && slot < 15)
+        if (slot !== undefined && slot < 11)
           trackTD[slot + 1] = seq.data[seq.data.length - 1];
       }
     }
 
-    // Emit one 16-byte RetroMation frame per show frame:
-    //   byte 0 = 0xFF sync, bytes 1-15 = character data
+    // Emit one 12-byte RetroMation frame per show frame:
+    //   byte 0 = 0xFF sync, bytes 1-11 = character data (88 animation bits)
     const waveL = makeBMCWave(encodeBMCBits(trackTD));
     const waveR = makeBMCWave(encodeBMCBits(trackBD));
     const len = Math.min(samplesPerFrame, outL.length - outOffset);
@@ -2049,15 +2050,15 @@ async function _renderBMCFrames(tape, statusEl) {
 // pilotSamples: number of export-rate samples to leave silent at the start —
 // matching the pilot tone duration so STPE's clock-lock period has no music.
 function _extractMusicChannels(len, pilotSamples, exportSampleRate) {
-  const EXPORT_SR = exportSampleRate || 48000;
+  const EXPORT_SR = exportSampleRate || 44100;
   const musicL = new Float32Array(len); // zero-filled = silence
   const musicR = new Float32Array(len);
   if (songBuffer) {
-    const srcSR = songBuffer.sampleRate; // AudioContext rate (typically 48000)
+    const srcSR = songBuffer.sampleRate; // AudioContext rate (typically 44100)
     const srcL = songBuffer.getChannelData(0);
     const srcR =
       songBuffer.numberOfChannels > 1 ? songBuffer.getChannelData(1) : srcL;
-    const ratio = srcSR / EXPORT_SR; // e.g. 48000/44100 ≈ 1.0884
+    const ratio = srcSR / EXPORT_SR; // e.g. 44100/44100 = 1.0 (no resample needed)
     const offset = pilotSamples || 0; // leave pilot region silent
     // Linear-interpolation resample: for each output sample position i,
     // compute the corresponding fractional position in the source buffer,

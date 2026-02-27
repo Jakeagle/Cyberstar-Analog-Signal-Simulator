@@ -50,4 +50,4 @@ for i in range(min(4, n_ch)):
         print(f"  Ch{i}: too few edges — likely silence")
 
 print("=" * 60)
-print("EXPECTED: Ch0 & Ch1 music (no bps estimate) | Ch2 & Ch3 data ~4800 bps")
+print("EXPECTED: Ch0 & Ch1 music (no bps estimate) | Ch2 & Ch3 data ~4410 bps")

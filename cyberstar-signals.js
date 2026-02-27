@@ -4,13 +4,13 @@
  *
  * RetroMation / Transmutate Showtape Standard:
  * - Encoding: Biphase Mark Code (phase-based, self-clocking)
- * - Baud Rate: 4800 bps
- * - Frame Rate: 37.5 fps (4800 ÷ 128 bits)
- * - Sample Rate: 48,000 Hz (48000 ÷ 4800 = exactly 10 samples/bit)
+ * - Baud Rate: 4410 bps
+ * - Frame Rate: 45.9375 fps (4410 ÷ 96 bits)
+ * - Sample Rate: 44,100 Hz (44100 ÷ 4410 = exactly 10 samples/bit)
  * - Music L/R: WAV Channels 0/1
  * - Track TD (Treble Data): WAV Channel 2
  * - Track BD (Bass Data): WAV Channel 3
- * - Frame Length: 16 Bytes (128 Bits) per track
+ * - Frame Length: 12 Bytes (96 Bits) — 1 sync + 11 data bytes
  * - Bit Order: MSB-first
  *
  * Every frame starts with 0xFF sync byte.
@@ -21,18 +21,18 @@ class CyberstarSignalGenerator {
   constructor(options = {}) {
     this.audioContext = null;
 
-    // RetroMation standard — 4800 bps, 16-byte (128-bit) frames, 37.5fps
-    // 48000 Hz / 4800 bps = exactly 10 samples per bit (integer-perfect timing)
-    this.bitrate = 4800;
-    this.frameRate = 37.5; // 4800 bps / 128 bits per frame
+    // RetroMation standard — 4410 bps, 12-byte (96-bit) frames, 45.9375fps
+    // 44100 Hz / 4410 bps = exactly 10 samples per bit (integer-perfect timing)
+    this.bitrate = 4410;
+    this.frameRate = 45.9375; // 4410 bps / 96 bits per frame
     this.amplitude = options.amplitude || 0.6;
     this.noiseLevel = options.noiseLevel || 0.015;
     this.lowpassCutoff = 8000; // preserving the "screech" high harmonics
 
     this.volume = options.volume || 0.7;
-    this.FRAME_BYTES = 16;
+    this.FRAME_BYTES = 12;
 
-    // Dual-track frame buffers (16 bytes — Pianocorder standard)
+    // Dual-track frame buffers (12 bytes — 1 sync + 11 data bytes)
     this.trackTD = new Uint8Array(this.FRAME_BYTES);
     this.trackBD = new Uint8Array(this.FRAME_BYTES);
 
@@ -66,13 +66,13 @@ class CyberstarSignalGenerator {
       this.audioContext = new (
         window.AudioContext || window.webkitAudioContext
       )({
-        sampleRate: 48000,
+        sampleRate: 44100,
       });
     }
   }
 
   get sampleRate() {
-    return this.audioContext ? this.audioContext.sampleRate : 48000;
+    return this.audioContext ? this.audioContext.sampleRate : 44100;
   }
 
   resumeContext() {
@@ -251,7 +251,7 @@ class CyberstarSignalGenerator {
    */
   _scheduleFrame(atTime) {
     const samplesPerBit = this.sampleRate / this.bitrate;
-    const bitsPerFrame = 16 * 8; // 128 bits — Pianocorder 16-byte frame
+    const bitsPerFrame = 12 * 8; // 96 bits — 12-byte frame
     const frameSamples = Math.ceil(bitsPerFrame * samplesPerBit);
 
     // Call sync hook for UI (Safe throttling to ~50Hz visual pulse)
@@ -474,10 +474,10 @@ class CyberstarSignalGenerator {
    * @param {Float32Array} bdData   BD BMC signal (pilot + show frames)
    * @param {Float32Array} [musicL] Music left  (optional; silence if omitted)
    * @param {Float32Array} [musicR] Music right (optional; silence if omitted)
-   * @returns {Blob} 4-channel 48kHz 16-bit PCM WAV Blob (Format 1 — RetroMation/Transmutate compatible)
+   * @returns {Blob} 4-channel 44.1kHz 16-bit PCM WAV Blob (Format 1 — RetroMation/Transmutate compatible)
    */
   exportBroadcastWav(tdData, bdData, musicL, musicR) {
-    const SAMPLE_RATE = 48000; // RetroMation requires 48kHz (48000/4800 = 10 exact samples/bit)
+    const SAMPLE_RATE = 44100; // 44100 / 4410 = exactly 10 samples/bit
     const NUM_CHANNELS = 4;
     const BITS = 16;
     // 0.75 keeps the BMC signal well within SPTE's detection range without
@@ -489,7 +489,7 @@ class CyberstarSignalGenerator {
     const mR = musicR || new Float32Array(len);
 
     const blockAlign = NUM_CHANNELS * (BITS / 8); // 8 bytes per sample-frame
-    const byteRate = SAMPLE_RATE * blockAlign; // 384000 @ 48kHz
+    const byteRate = SAMPLE_RATE * blockAlign; // 352800 @ 44.1kHz
     const dataBytes = len * blockAlign;
 
     // ── Standard PCM WAV header (44 bytes) ──────────────────────────────────
@@ -526,7 +526,7 @@ class CyberstarSignalGenerator {
     view.setUint32(16, 16, true); // fmt chunk size = 16 (PCM)
     view.setUint16(20, 1, true); // AudioFormat = 1 (PCM)
     view.setUint16(22, NUM_CHANNELS, true); // nChannels = 4
-    view.setUint32(24, SAMPLE_RATE, true); // nSamplesPerSec = 48000
+    view.setUint32(24, SAMPLE_RATE, true); // nSamplesPerSec = 44100
     view.setUint32(28, byteRate, true); // nAvgBytesPerSec = 352800
     view.setUint16(32, blockAlign, true); // nBlockAlign = 8
     view.setUint16(34, BITS, true); // wBitsPerSample = 16

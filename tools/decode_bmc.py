@@ -2,25 +2,25 @@
 Step B: Bit-level BMC decoder. Extracts edges -> bits -> frame dumps.
 Usage: python tools/decode_bmc.py path/to/file_4ch.wav [td_ch] [bd_ch] [bps]
   td_ch / bd_ch default to 2 / 3 (Ch2=TD, Ch3=BD per RetroMation spec)
-  bps defaults to 4800 (48000Hz / 4800bps = exactly 10 samples/bit)
+  bps defaults to 4410 (44100Hz / 4410bps = exactly 10 samples/bit)
 """
 import sys
 import soundfile as sf
 import numpy as np
 
 if len(sys.argv) < 2:
-    print("Usage: python tools/decode_bmc.py file.wav [td_ch=2] [bd_ch=3] [bps=4800]")
+    print("Usage: python tools/decode_bmc.py file.wav [td_ch=2] [bd_ch=3] [bps=4410]")
     raise SystemExit
 
 path   = sys.argv[1]
 td_idx      = int(sys.argv[2])   if len(sys.argv) > 2 else 2
 bd_idx      = int(sys.argv[3])   if len(sys.argv) > 3 else 3
-FORCE_BPS   = float(sys.argv[4]) if len(sys.argv) > 4 else 4800.0  # RetroMation rate
+FORCE_BPS   = float(sys.argv[4]) if len(sys.argv) > 4 else 4410.0  # RetroMation true rate (44100/10 = 4410 exact)
 
 data, sr = sf.read(path, always_2d=True)
 print(f"Loaded: {path}  sr={sr}  channels={data.shape[1]}")
 
-def decode_channel(ch, sr, label, n_frame_bits=128):
+def decode_channel(ch, sr, label, n_frame_bits=96):
     # Skip pilot region (first 3 seconds = 3*sr samples); data frames start after
     pilot_end = int(sr * 3.0)
     post_pilot = ch[pilot_end:]
@@ -35,15 +35,14 @@ def decode_channel(ch, sr, label, n_frame_bits=128):
     mean_interval = np.mean(intervals)
     edge_est_bps = 1.0 / (mean_interval * 2.0)
 
-    # The edge-based estimator under-reads for data-heavy 0-bit streams.
-    # Use the known Pianocorder bitrate (4500 bps) for actual sampling.
+    # Use the known RetroMation bitrate (4410 bps, 44100 Hz) for actual sampling.
     samples_per_bit = sr / FORCE_BPS
 
     print(f"\n{label}:")
     print(f"  Edges       : {len(edges)}")
     print(f"  Edge est bps: {edge_est_bps:.1f} bps  (NOTE: underestimates for 0-heavy data)")
-    print(f"  Using bps   : {FORCE_BPS:.1f} bps  (forced Pianocorder rate)")
-    print(f"  Samp/bit    : {samples_per_bit:.2f}  (target {sr/4500:.2f})")
+    print(f"  Using bps   : {FORCE_BPS:.1f} bps  (forced RetroMation rate)")
+    print(f"  Samp/bit    : {samples_per_bit:.2f}  (target {sr/4410:.2f})")
 
     # --- Proper edge-interval BMC decoder ------------------------------------
     # BMC is DIFFERENTIAL: you cannot decode it by sampling absolute level.
