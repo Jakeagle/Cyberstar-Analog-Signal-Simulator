@@ -2,14 +2,15 @@
  * Cyberstar Analog Signal Generator v2.0
  * Implements Biphase Mark Code (BMC) encoding for digital control signals
  *
- * Pianocorder / CEI Showtape Standard (STPE-compatible):
+ * RetroMation / Transmutate Showtape Standard:
  * - Encoding: Biphase Mark Code (phase-based, self-clocking)
- * - Baud Rate: 4500 bps
- * - Frame Rate: ~35.15625 fps (4500 ÷ 128 bits)
- * - Track TD (Treble Data): WAV Channel 0
- * - Track BD (Bass Data): WAV Channel 1
- * - Music L/R: WAV Channels 2/3
- * - Frame Length: 16 Bytes (128 Bits) per track — Pianocorder standard
+ * - Baud Rate: 4800 bps
+ * - Frame Rate: 37.5 fps (4800 ÷ 128 bits)
+ * - Sample Rate: 48,000 Hz (48000 ÷ 4800 = exactly 10 samples/bit)
+ * - Music L/R: WAV Channels 0/1
+ * - Track TD (Treble Data): WAV Channel 2
+ * - Track BD (Bass Data): WAV Channel 3
+ * - Frame Length: 16 Bytes (128 Bits) per track
  * - Bit Order: MSB-first
  *
  * Every frame starts with 0xFF sync byte.
@@ -20,9 +21,10 @@ class CyberstarSignalGenerator {
   constructor(options = {}) {
     this.audioContext = null;
 
-    // Pianocorder / RAE standard — 4500 bps, 16-byte (128-bit) frames, ~35fps
-    this.bitrate = 4500;
-    this.frameRate = 35.15625; // 4500 bps / 128 bits per frame
+    // RetroMation standard — 4800 bps, 16-byte (128-bit) frames, 37.5fps
+    // 48000 Hz / 4800 bps = exactly 10 samples per bit (integer-perfect timing)
+    this.bitrate = 4800;
+    this.frameRate = 37.5; // 4800 bps / 128 bits per frame
     this.amplitude = options.amplitude || 0.6;
     this.noiseLevel = options.noiseLevel || 0.015;
     this.lowpassCutoff = 8000; // preserving the "screech" high harmonics
@@ -64,13 +66,13 @@ class CyberstarSignalGenerator {
       this.audioContext = new (
         window.AudioContext || window.webkitAudioContext
       )({
-        sampleRate: 44100,
+        sampleRate: 48000,
       });
     }
   }
 
   get sampleRate() {
-    return this.audioContext ? this.audioContext.sampleRate : 44100;
+    return this.audioContext ? this.audioContext.sampleRate : 48000;
   }
 
   resumeContext() {
@@ -472,10 +474,10 @@ class CyberstarSignalGenerator {
    * @param {Float32Array} bdData   BD BMC signal (pilot + show frames)
    * @param {Float32Array} [musicL] Music left  (optional; silence if omitted)
    * @param {Float32Array} [musicR] Music right (optional; silence if omitted)
-   * @returns {Blob} 4-channel 44.1kHz 16-bit PCM WAV Blob (Format 1 — STPE compatible)
+   * @returns {Blob} 4-channel 48kHz 16-bit PCM WAV Blob (Format 1 — RetroMation/Transmutate compatible)
    */
   exportBroadcastWav(tdData, bdData, musicL, musicR) {
-    const SAMPLE_RATE = 44100; // STPE requires 44.1 kHz
+    const SAMPLE_RATE = 48000; // RetroMation requires 48kHz (48000/4800 = 10 exact samples/bit)
     const NUM_CHANNELS = 4;
     const BITS = 16;
     // 0.75 keeps the BMC signal well within SPTE's detection range without
@@ -487,7 +489,7 @@ class CyberstarSignalGenerator {
     const mR = musicR || new Float32Array(len);
 
     const blockAlign = NUM_CHANNELS * (BITS / 8); // 8 bytes per sample-frame
-    const byteRate = SAMPLE_RATE * blockAlign; // 352800 @ 44.1 kHz
+    const byteRate = SAMPLE_RATE * blockAlign; // 384000 @ 48kHz
     const dataBytes = len * blockAlign;
 
     // ── Standard PCM WAV header (44 bytes) ──────────────────────────────────
@@ -524,7 +526,7 @@ class CyberstarSignalGenerator {
     view.setUint32(16, 16, true); // fmt chunk size = 16 (PCM)
     view.setUint16(20, 1, true); // AudioFormat = 1 (PCM)
     view.setUint16(22, NUM_CHANNELS, true); // nChannels = 4
-    view.setUint32(24, SAMPLE_RATE, true); // nSamplesPerSec = 44100
+    view.setUint32(24, SAMPLE_RATE, true); // nSamplesPerSec = 48000
     view.setUint32(28, byteRate, true); // nAvgBytesPerSec = 352800
     view.setUint16(32, blockAlign, true); // nBlockAlign = 8
     view.setUint16(34, BITS, true); // wBitsPerSample = 16

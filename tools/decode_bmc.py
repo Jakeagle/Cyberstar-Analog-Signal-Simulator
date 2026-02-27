@@ -1,20 +1,21 @@
 """
 Step B: Bit-level BMC decoder. Extracts edges -> bits -> frame dumps.
-Usage: python tools/decode_bmc.py path/to/file_4ch.wav [td_ch] [bd_ch]
-  td_ch / bd_ch default to 2 / 3 (Ch2=TD, Ch3=BD per SPTE spec: music on Ch0/1, data on Ch2/3)
+Usage: python tools/decode_bmc.py path/to/file_4ch.wav [td_ch] [bd_ch] [bps]
+  td_ch / bd_ch default to 2 / 3 (Ch2=TD, Ch3=BD per RetroMation spec)
+  bps defaults to 4800 (48000Hz / 4800bps = exactly 10 samples/bit)
 """
 import sys
 import soundfile as sf
 import numpy as np
 
 if len(sys.argv) < 2:
-    print("Usage: python tools/decode_bmc.py file.wav [td_ch=2] [bd_ch=3]")
+    print("Usage: python tools/decode_bmc.py file.wav [td_ch=2] [bd_ch=3] [bps=4800]")
     raise SystemExit
 
 path   = sys.argv[1]
 td_idx      = int(sys.argv[2])   if len(sys.argv) > 2 else 2
 bd_idx      = int(sys.argv[3])   if len(sys.argv) > 3 else 3
-FORCE_BPS   = float(sys.argv[4]) if len(sys.argv) > 4 else 4500.0  # known Pianocorder rate
+FORCE_BPS   = float(sys.argv[4]) if len(sys.argv) > 4 else 4800.0  # RetroMation rate
 
 data, sr = sf.read(path, always_2d=True)
 print(f"Loaded: {path}  sr={sr}  channels={data.shape[1]}")

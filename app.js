@@ -1894,20 +1894,22 @@ async function _renderBMCFrames(tape, statusEl) {
   });
 
   // Pianocorder / STPE standard: 44.1kHz, 4500 bps, 128-bit (16-byte) frames @ ~35fps
-  const SAMPLE_RATE = 44100;
-  const BITRATE = 4500;
-  const FRAME_RATE = 35.15625; // 4500 bps / 128 bits per frame
+  // RetroMation/Transmutate standard: 48kHz, 4800 bps, 128-bit (16-byte) frames @ 37.5fps
+  // 48000 / 4800 = exactly 10 samples per bit — integer-perfect, no accumulator drift
+  const SAMPLE_RATE = 48000;
+  const BITRATE = 4800;
+  const FRAME_RATE = 37.5; // 4800 bps / 128 bits per frame
   // Export renders at full scale; exportBroadcastWav applies the final ±SIGNAL_PEAK clamp.
   const scale = 1.0;
   const FRAME_MS = 1000 / FRAME_RATE;
-  const bitsPerFrame = 16 * 8; // 128 bits — Pianocorder 16-byte frame
-  const samplesPerBit = SAMPLE_RATE / BITRATE; // 9.8 — float accumulator handles non-integer
-  const samplesPerFrame = Math.ceil(bitsPerFrame * samplesPerBit); // 1255 samples
+  const bitsPerFrame = 16 * 8; // 128 bits — 16-byte frame
+  const samplesPerBit = SAMPLE_RATE / BITRATE; // exactly 10.0
+  const samplesPerFrame = Math.ceil(bitsPerFrame * samplesPerBit); // 1280 samples
   const totalFrames = Math.ceil(tape.duration / FRAME_MS);
 
-  // Pilot tone: 3.0 s of logical-1 bits at 4500 bps so SPTE/ProgramBlue can lock its clock
-  const PILOT_BITS = BITRATE * 3; // 13500 bits = 3 seconds of pilot
-  const PILOT_SAMPLES = Math.round(PILOT_BITS * samplesPerBit); // 132300 samples = 3 s
+  // Pilot tone: 3.0 s of logical-1 bits at 4800 bps so Transmutate can lock its clock
+  const PILOT_BITS = BITRATE * 3; // 14400 bits = 3 seconds of pilot
+  const PILOT_SAMPLES = Math.round(PILOT_BITS * samplesPerBit); // 144000 samples = 3 s
 
   // MSB-first bit extraction — Pianocorder / RAE standard (MSB sent first)
   function encodeBMCBits(bytes) {
@@ -2028,8 +2030,8 @@ async function _renderBMCFrames(tape, statusEl) {
       }
     }
 
-    // Emit one 12-byte RAE frame per show frame:
-    //   byte 0 = 0xFF sync, bytes 1-11 = character data
+    // Emit one 16-byte RetroMation frame per show frame:
+    //   byte 0 = 0xFF sync, bytes 1-15 = character data
     const waveL = makeBMCWave(encodeBMCBits(trackTD));
     const waveR = makeBMCWave(encodeBMCBits(trackBD));
     const len = Math.min(samplesPerFrame, outL.length - outOffset);
@@ -2047,7 +2049,7 @@ async function _renderBMCFrames(tape, statusEl) {
 // pilotSamples: number of export-rate samples to leave silent at the start —
 // matching the pilot tone duration so STPE's clock-lock period has no music.
 function _extractMusicChannels(len, pilotSamples, exportSampleRate) {
-  const EXPORT_SR = exportSampleRate || 44100;
+  const EXPORT_SR = exportSampleRate || 48000;
   const musicL = new Float32Array(len); // zero-filled = silence
   const musicR = new Float32Array(len);
   if (songBuffer) {
