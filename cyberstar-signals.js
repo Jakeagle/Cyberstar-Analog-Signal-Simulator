@@ -451,19 +451,16 @@ class CyberstarSignalGenerator {
   /**
    * Encode a 4-channel broadcast WAV ready for ProgramBlue / STPE import.
    *
-   * Channel layout:
-   *   Ch 0 — Music Left
-   *   Ch 1 — Music Right
-   *   Ch 2 — Track TD (Treble/Top Drawer BMC signal)
-   *   Ch 3 — Track BD (Bass/Bottom Drawer BMC signal)
+   * Channel layout — RAE original 4-track tape order:
+   *   Ch 0 — Track TD (Treble Data BMC signal) ← STPE Bit Stripper input
+   *   Ch 1 — Track BD (Bass Data BMC signal)   ← STPE Bit Stripper input
+   *   Ch 2 — Music Left                         ← STPE audio output
+   *   Ch 3 — Music Right                        ← STPE audio output
    *
-   * Uses standard PCM (AudioFormat = 1) with a plain 44-byte header.
-   * WAVE_FORMAT_EXTENSIBLE (0xFFFE) was tried but caused STPE to reject the
-   * file entirely — Unity's ByteArrayToAudioClip only accepts format tag 1
-   * for multi-channel files at 44.1 kHz.
-   *
-   * Signal channels are clamped to ±0.95 — full amplitude that the STPE
-   * bit-stripper can read cleanly. 0.7 was too conservative.
+   * STPE reads Ch0/Ch1 through its Bit Stripper for animatronic control and
+   * routes Ch2/Ch3 to the speaker output. Previous layout had them swapped
+   * (music on 0/1, signals on 2/3), causing the BMC screech to be audible
+   * and animatronics to receive silence instead of data.
    *
    * @param {Float32Array} tdData   TD BMC signal (pilot + show frames)
    * @param {Float32Array} bdData   BD BMC signal (pilot + show frames)
@@ -491,11 +488,14 @@ class CyberstarSignalGenerator {
     // AudioFormat = 1 (PCM). No cbSize, no ChannelMask, no SubFormat GUID.
     // This is the exact format STPE/Unity ByteArrayToAudioClip accepts.
     //
-    // File layout:
-    //   [0]  RIFF chunk  12 bytes  ("RIFF" + size + "WAVE")
-    //   [12] fmt  chunk  24 bytes  ("fmt " + 16 + 16 bytes of PCM fmt data)
-    //   [36] data chunk  8+N bytes ("data" + N + N bytes of Int16 PCM)
-    //   Total header = 44 bytes  |  RIFF size field = 36 + dataBytes
+    // CHANNEL ORDER — critical for STPE:
+    //   STPE's Bit Stripper reads Ch0 and Ch1 as the data/signal tracks.
+    //   STPE routes Ch2 and Ch3 to the audio output (speakers).
+    //   Matches the original RAE 4-track tape layout:
+    //     Track 1 (Ch0) = TD  (Treble Data — animatronic control signal)
+    //     Track 2 (Ch1) = BD  (Bass Data   — animatronic control signal)
+    //     Track 3 (Ch2) = Music L
+    //     Track 4 (Ch3) = Music R
     const buf = new ArrayBuffer(44 + dataBytes);
     const view = new DataView(buf);
 
@@ -505,7 +505,6 @@ class CyberstarSignalGenerator {
     }
     function writeS16(off, f) {
       const s = Math.max(-1, Math.min(1, f));
-      // Math.round prevents systematic truncation error on square-wave edges.
       view.setInt16(off, Math.round(s < 0 ? s * 0x8000 : s * 0x7fff), true);
     }
 
@@ -528,20 +527,20 @@ class CyberstarSignalGenerator {
     writeStr(36, "data");
     view.setUint32(40, dataBytes, true);
 
-    // Interleave: [MusicL, MusicR, TD, BD] per sample-frame
-    // Ch0=MusicL, Ch1=MusicR, Ch2=TD (Treble Data), Ch3=BD (Bass Data)
+    // Interleave: [TD, BD, MusicL, MusicR] per sample-frame
+    // Ch0=TD, Ch1=BD, Ch2=Music L, Ch3=Music R  ← RAE 4-track layout
     let off = 44;
     for (let i = 0; i < len; i++) {
-      writeS16(off, mL[i] || 0); // Ch0 Music L
-      writeS16(off + 2, mR[i] || 0); // Ch1 Music R
       writeS16(
-        off + 4,
+        off,
         Math.max(-SIGNAL_PEAK, Math.min(SIGNAL_PEAK, tdData[i] || 0)),
-      ); // Ch2 TD
+      ); // Ch0 TD
       writeS16(
-        off + 6,
+        off + 2,
         Math.max(-SIGNAL_PEAK, Math.min(SIGNAL_PEAK, bdData[i] || 0)),
-      ); // Ch3 BD
+      ); // Ch1 BD
+      writeS16(off + 4, mL[i] || 0); // Ch2 Music L
+      writeS16(off + 6, mR[i] || 0); // Ch3 Music R
       off += 8;
     }
 

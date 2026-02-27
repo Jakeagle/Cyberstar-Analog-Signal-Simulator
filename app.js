@@ -2040,24 +2040,30 @@ async function _renderBMCFrames(tape, statusEl) {
   return { outL, outR, outOffset, PILOT_SAMPLES, bandKey, tape, SAMPLE_RATE };
 }
 
-// Extract music L/R from the cached songBuffer, aligned to `len` frames.
-// pilotSamples: number of samples to leave silent at the start of each
-// music channel — matching the pilot tone duration on the data channels.
-// The music must NOT play during the pilot period; STPE/RAE decoders use
-// that first second to lock their clock and find frame sync.
-function _extractMusicChannels(len, pilotSamples) {
+// Extract music L/R from the cached songBuffer, resampled to exportSampleRate.
+// pilotSamples: number of export-rate samples to leave silent at the start —
+// matching the pilot tone duration so STPE's clock-lock period has no music.
+function _extractMusicChannels(len, pilotSamples, exportSampleRate) {
+  const EXPORT_SR = exportSampleRate || 44100;
   const musicL = new Float32Array(len); // zero-filled = silence
   const musicR = new Float32Array(len);
   if (songBuffer) {
+    const srcSR = songBuffer.sampleRate; // AudioContext rate (typically 48000)
     const srcL = songBuffer.getChannelData(0);
     const srcR =
       songBuffer.numberOfChannels > 1 ? songBuffer.getChannelData(1) : srcL;
-    // Write music starting at pilotSamples offset so the pilot region stays silent
-    const offset = pilotSamples || 0;
-    const copyLen = Math.min(len - offset, srcL.length);
-    if (copyLen > 0) {
-      musicL.set(srcL.subarray(0, copyLen), offset);
-      musicR.set(srcR.subarray(0, copyLen), offset);
+    const ratio = srcSR / EXPORT_SR; // e.g. 48000/44100 ≈ 1.0884
+    const offset = pilotSamples || 0; // leave pilot region silent
+    // Linear-interpolation resample: for each output sample position i,
+    // compute the corresponding fractional position in the source buffer,
+    // then lerp between the two nearest source samples.
+    for (let i = 0; i < len - offset; i++) {
+      const srcPos = i * ratio;
+      const idx = Math.floor(srcPos);
+      const frac = srcPos - idx;
+      if (idx + 1 >= srcL.length) break; // past end of source — leave silence
+      musicL[offset + i] = srcL[idx] + frac * (srcL[idx + 1] - srcL[idx]);
+      musicR[offset + i] = srcR[idx] + frac * (srcR[idx + 1] - srcR[idx]);
     }
   }
   return { musicL, musicR };
@@ -2139,8 +2145,12 @@ async function export4chWAV() {
     statusEl.textContent = "Encoding 4-ch broadcast WAV…";
     await new Promise((r) => setTimeout(r, 0));
 
-    const { musicL, musicR } = _extractMusicChannels(outOffset, pilotSamples);
-    // Route through exportBroadcastWav: correct 4-ch layout + ±0.95 amplitude cap
+    const { musicL, musicR } = _extractMusicChannels(
+      outOffset,
+      pilotSamples,
+      SAMPLE_RATE,
+    );
+    // Route through exportBroadcastWav: Ch0=TD, Ch1=BD, Ch2=MusicL, Ch3=MusicR
     const blob = signalGenerator.exportBroadcastWav(
       outL.subarray(0, outOffset),
       outR.subarray(0, outOffset),
@@ -2187,8 +2197,12 @@ async function exportShowFile() {
     statusEl.textContent = "Encoding show file…";
     await new Promise((r) => setTimeout(r, 0));
 
-    const { musicL, musicR } = _extractMusicChannels(outOffset, pilotSamples);
-    // exportBroadcastWav: STPE-compatible 4-ch layout, ±0.95 amplitude
+    const { musicL, musicR } = _extractMusicChannels(
+      outOffset,
+      pilotSamples,
+      SAMPLE_RATE,
+    );
+    // exportBroadcastWav: Ch0=TD, Ch1=BD, Ch2=MusicL, Ch3=MusicR (RAE 4-track layout)
     const blob = signalGenerator.exportBroadcastWav(
       outL.subarray(0, outOffset),
       outR.subarray(0, outOffset),
