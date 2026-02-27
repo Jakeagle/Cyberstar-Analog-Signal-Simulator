@@ -1905,9 +1905,9 @@ async function _renderBMCFrames(tape, statusEl) {
   const samplesPerFrame = Math.ceil(bitsPerFrame * samplesPerBit); // 1255 samples
   const totalFrames = Math.ceil(tape.duration / FRAME_MS);
 
-  // Pilot tone: 1.0 s of logical-1 bits at 4500 bps so ProgramBlue can lock its clock
-  const PILOT_BITS = BITRATE; // 4500 bits = 1 second of pilot
-  const PILOT_SAMPLES = Math.round(PILOT_BITS * samplesPerBit); // 44100 samples = 1 s
+  // Pilot tone: 3.0 s of logical-1 bits at 4500 bps so SPTE/ProgramBlue can lock its clock
+  const PILOT_BITS = BITRATE * 3; // 13500 bits = 3 seconds of pilot
+  const PILOT_SAMPLES = Math.round(PILOT_BITS * samplesPerBit); // 132300 samples = 3 s
 
   // MSB-first bit extraction — Pianocorder / RAE standard (MSB sent first)
   function encodeBMCBits(bytes) {
