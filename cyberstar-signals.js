@@ -2,15 +2,17 @@
  * Cyberstar Analog Signal Generator v2.0
  * Implements Biphase Mark Code (BMC) encoding for digital control signals
  *
- * Official Rock-afire Explosion (RFE) Specification:
+ * Pianocorder / CEI Showtape Standard (STPE-compatible):
  * - Encoding: Biphase Mark Code (phase-based, self-clocking)
- * - Baud Rate: 4800 bps
- * - Frame Rate: 50 fps (20 ms per frame)
- * - Track TD (Treble Data): Left Audio Channel
- * - Track BD (Bass Data): Right Audio Channel
- * - Frame Length: 12 Bytes (96 Bits) per track
+ * - Baud Rate: 4500 bps
+ * - Frame Rate: ~35.15625 fps (4500 ÷ 128 bits)
+ * - Track TD (Treble Data): WAV Channel 0
+ * - Track BD (Bass Data): WAV Channel 1
+ * - Music L/R: WAV Channels 2/3
+ * - Frame Length: 16 Bytes (128 Bits) per track — Pianocorder standard
+ * - Bit Order: MSB-first
  *
- * Every frame starts with a clock flip at bit boundary.
+ * Every frame starts with 0xFF sync byte.
  * Logic '1' has an additional mid-bit transition.
  */
 
@@ -18,22 +20,23 @@ class CyberstarSignalGenerator {
   constructor(options = {}) {
     this.audioContext = null;
 
-    // BMC / stream parameters — Official 4800 Baud Spec
-    this.bitrate = 4800;
-    this.frameRate = 50;
-    this.amplitude = options.amplitude || 0.85;
+    // Pianocorder / RAE standard — 4500 bps, 16-byte (128-bit) frames, ~35fps
+    this.bitrate = 4500;
+    this.frameRate = 35.15625; // 4500 bps / 128 bits per frame
+    this.amplitude = options.amplitude || 0.95;
     this.noiseLevel = options.noiseLevel || 0.015;
     this.lowpassCutoff = 8000; // preserving the "screech" high harmonics
 
     this.volume = options.volume || 0.7;
+    this.FRAME_BYTES = 16;
 
-    // Dual-track frame buffers (12 bytes each)
-    this.trackTD = new Uint8Array(12);
-    this.trackBD = new Uint8Array(12);
+    // Dual-track frame buffers (16 bytes — Pianocorder standard)
+    this.trackTD = new Uint8Array(this.FRAME_BYTES);
+    this.trackBD = new Uint8Array(this.FRAME_BYTES);
 
-    // State Comparison Buffer (Emergency Patch #1)
-    this.trackTD_last = new Uint8Array(12);
-    this.trackBD_last = new Uint8Array(12);
+    // State Comparison Buffer
+    this.trackTD_last = new Uint8Array(this.FRAME_BYTES);
+    this.trackBD_last = new Uint8Array(this.FRAME_BYTES);
 
     // Stream scheduling state
     this.isStreaming = false;
@@ -61,13 +64,13 @@ class CyberstarSignalGenerator {
       this.audioContext = new (
         window.AudioContext || window.webkitAudioContext
       )({
-        sampleRate: 48000,
+        sampleRate: 44100,
       });
     }
   }
 
   get sampleRate() {
-    return this.audioContext ? this.audioContext.sampleRate : 48000;
+    return this.audioContext ? this.audioContext.sampleRate : 44100;
   }
 
   resumeContext() {
@@ -90,8 +93,8 @@ class CyberstarSignalGenerator {
     const bits = [];
     for (let i = 0; i < dataBytes.length; i++) {
       const byte = dataBytes[i];
-      for (let b = 0; b < 8; b++) {
-        bits.push((byte >> b) & 1);
+      for (let b = 7; b >= 0; b--) {
+        bits.push((byte >> b) & 1); // MSB-first — Pianocorder / RAE standard
       }
     }
     return bits;
@@ -101,31 +104,36 @@ class CyberstarSignalGenerator {
    * Render a BMC bit stream into a Float32Array waveform.
    * Produces a bipolar square wave (+1 / −1) with BMC phase transitions.
    *
-   * Integer-perfect timing: at 48kHz / 4800bps = exactly 10 samples per bit.
-   * Hard index math (i * SPB) eliminates any floating-point drift across frames.
+   * Float-accumulator timing: at 44.1kHz / 4500bps = 9.8 samples per bit.
+   * Floating-point samplePos accumulator eliminates rounding drift across frames.
    * When isExporting is true, noise is suppressed for clean digital decoder output.
    */
   generateBMCWaveform(bits) {
-    const SPB = Math.round(this.sampleRate / this.bitrate); // 10 at 48kHz/4800bps
-    const waveform = new Float32Array(bits.length * SPB);
-    let level = 1; // start at +1
+    const samplesPerBit = this.sampleRate / this.bitrate; // 9.8 at 44.1kHz/4500bps
+    const totalSamples = Math.ceil(bits.length * samplesPerBit);
+    const waveform = new Float32Array(totalSamples);
+    let level = 1.0; // start at +1
+    let samplePos = 0.0;
 
-    for (let i = 0; i < bits.length; i++) {
-      const start = i * SPB;
-      const mid = start + (SPB >> 1); // start + 5
-      const end = start + SPB; // start + 10
+    for (let bi = 0; bi < bits.length; bi++) {
+      const nextPos = samplePos + samplesPerBit;
+      const midPos = samplePos + samplesPerBit / 2.0;
+      const start = Math.floor(samplePos);
+      const mid = Math.floor(midPos);
+      const end = Math.floor(nextPos);
 
-      if (bits[i] === 1) {
+      if (bits[bi] === 1) {
         // First half at current level, then mid-bit transition
-        for (let s = start; s < mid; s++) waveform[s] = level;
-        level *= -1; // mid-bit transition
-        for (let s = mid; s < end; s++) waveform[s] = level;
-        level *= -1; // boundary transition
+        for (let i = start; i < mid; i++) waveform[i] = level;
+        level *= -1.0; // mid-bit transition
+        for (let i = mid; i < end; i++) waveform[i] = level;
+        level *= -1.0; // boundary transition
       } else {
         // Both halves at current level (no mid-bit transition)
-        for (let s = start; s < end; s++) waveform[s] = level;
-        level *= -1; // boundary transition only
+        for (let i = start; i < end; i++) waveform[i] = level;
+        level *= -1.0; // boundary transition only
       }
+      samplePos = nextPos;
     }
 
     // Light noise for analog tape simulation — bypassed in broadcast/export mode
@@ -241,7 +249,7 @@ class CyberstarSignalGenerator {
    */
   _scheduleFrame(atTime) {
     const samplesPerBit = this.sampleRate / this.bitrate;
-    const bitsPerFrame = 12 * 8; // 96 bits
+    const bitsPerFrame = 16 * 8; // 128 bits — Pianocorder 16-byte frame
     const frameSamples = Math.ceil(bitsPerFrame * samplesPerBit);
 
     // Call sync hook for UI (Safe throttling to ~50Hz visual pulse)
@@ -292,7 +300,7 @@ class CyberstarSignalGenerator {
   setBit(track, bitIndex, value) {
     const buffer = track === "TD" ? this.trackTD : this.trackBD;
     const byteIndex = Math.floor(bitIndex / 8);
-    const bitPos = bitIndex % 8; // LSB first
+    const bitPos = 7 - (bitIndex % 8); // MSB-first — Pianocorder standard
 
     if (value) {
       buffer[byteIndex] |= 1 << bitPos;
@@ -308,7 +316,7 @@ class CyberstarSignalGenerator {
   toggleBit(track, bitIndex) {
     const buffer = track === "TD" ? this.trackTD : this.trackBD;
     const byteIndex = Math.floor(bitIndex / 8);
-    const bitPos = bitIndex % 8; // LSB first
+    const bitPos = 7 - (bitIndex % 8); // MSB-first
     const current = (buffer[byteIndex] >> bitPos) & 1;
     this.setBit(track, bitIndex, !current);
   }
@@ -439,8 +447,8 @@ class CyberstarSignalGenerator {
   getBit(track, bitIndex) {
     const buffer = track === "TD" ? this.trackTD : this.trackBD;
     const byteIndex = Math.floor(bitIndex / 8);
-    const bitInByte = bitIndex % 8; // lsb-first
-    if (byteIndex < 0 || byteIndex >= 12) return false;
+    const bitInByte = 7 - (bitIndex % 8); // MSB-first — Pianocorder standard
+    if (byteIndex < 0 || byteIndex >= this.FRAME_BYTES) return false;
     return (buffer[byteIndex] >> bitInByte) & 1;
   }
 

@@ -184,7 +184,7 @@ function setupCurrentBandSlots() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// v2 — TDM Frame Monitor: Dual 96-bit (12-byte) LED bit-grids
+// v2 — TDM Frame Monitor: Dual 128-bit (16-byte) LED bit-grids
 // Based on Official RFE Specification (TD and BD tracks)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -217,7 +217,7 @@ function buildLEDGrid() {
   container.appendChild(bdContainer);
 
   const createTrack = (grid, prefix) => {
-    for (let s = 0; s < 12; s++) {
+    for (let s = 0; s < 16; s++) {
       const row = document.createElement("div");
       row.className = "led-row";
       const label = document.createElement("span");
@@ -247,13 +247,13 @@ function buildLEDGrid() {
 }
 
 /**
- * Update the dual LED grids from the signal generator's 12-byte buffers.
+ * Update the dual LED grids from the signal generator's 16-byte buffers.
  */
 function updateLEDGrid() {
   if (!signalGenerator) return;
 
   const update = (buf, lastBuf, prefix) => {
-    for (let s = 0; s < 12; s++) {
+    for (let s = 0; s < 16; s++) {
       if (buf[s] === lastBuf[s]) continue; // byte unchanged — skip DOM thrash
       lastBuf[s] = buf[s];
       const val = buf[s];
@@ -1893,82 +1893,85 @@ async function _renderBMCFrames(tape, statusEl) {
     if (i < 8) slotMap.set(name, i);
   });
 
-  // STPE requires 44,100 Hz. SAMPLES_PER_BIT is fixed at 10 (integer constant)
-  // so there is no rounding — every bit occupies exactly 10 samples.
+  // Pianocorder / STPE standard: 44.1kHz, 4500 bps, 128-bit (16-byte) frames @ ~35fps
   const SAMPLE_RATE = 44100;
-  const BITRATE = 4800;
-  const FRAME_RATE = 50;
-  // Export: BMC data channels must be at full amplitude regardless of the UI
-  // volume knob. Volume only controls the speaker output during live playback.
-  // The exportBroadcastWav function clamps to ±SIGNAL_PEAK (0.7) as the
-  // final amplitude cap, so we render at scale=1.0 here.
+  const BITRATE = 4500;
+  const FRAME_RATE = 35.15625; // 4500 bps / 128 bits per frame
+  // Export renders at full scale; exportBroadcastWav applies the final ±SIGNAL_PEAK clamp.
   const scale = 1.0;
   const FRAME_MS = 1000 / FRAME_RATE;
-  const bitsPerFrame = 12 * 8;
-  const SAMPLES_PER_BIT = 10; // fixed integer: no rounding, no drift
-  const samplesPerFrame = bitsPerFrame * SAMPLES_PER_BIT; // 960 samples
+  const bitsPerFrame = 16 * 8; // 128 bits — Pianocorder 16-byte frame
+  const samplesPerBit = SAMPLE_RATE / BITRATE; // 9.8 — float accumulator handles non-integer
+  const samplesPerFrame = Math.ceil(bitsPerFrame * samplesPerBit); // 1255 samples
   const totalFrames = Math.ceil(tape.duration / FRAME_MS);
 
-  // Pilot tone: 1.0 s of logical-1 bits so ProgramBlue can lock its clock
-  const PILOT_BITS = BITRATE; // 4800 bits = 1 second
-  const PILOT_SAMPLES = PILOT_BITS * SAMPLES_PER_BIT; // 48000 samples
+  // Pilot tone: 1.0 s of logical-1 bits at 4500 bps so ProgramBlue can lock its clock
+  const PILOT_BITS = BITRATE; // 4500 bits = 1 second of pilot
+  const PILOT_SAMPLES = Math.round(PILOT_BITS * samplesPerBit); // 44100 samples = 1 s
 
-  // LSB-first bit extraction (matches RFE bitmap spec, Bit 0 = LSB of byte 0)
+  // MSB-first bit extraction — Pianocorder / RAE standard (MSB sent first)
   function encodeBMCBits(bytes) {
     const bits = [];
     for (let i = 0; i < bytes.length; i++) {
       const byte = bytes[i];
-      for (let b = 0; b < 8; b++) bits.push((byte >> b) & 1);
+      for (let b = 7; b >= 0; b--) bits.push((byte >> b) & 1);
     }
     return bits;
   }
 
-  // Integer-perfect BMC waveform — exactly SAMPLES_PER_BIT samples per bit.
-  // No floating-point accumulator, no noise. Digital decoders need raw square waves.
+  // Float-accumulator BMC waveform — handles non-integer 9.8 samples/bit precisely.
+  // No rounding artifacts. Digital decoders receive clean square-wave transitions.
   function makeBMCWave(bits) {
-    const SPB = SAMPLES_PER_BIT; // integer: 10
-    const w = new Float32Array(bits.length * SPB);
-    let level = 1;
+    const totalSamples = Math.ceil(bits.length * samplesPerBit);
+    const w = new Float32Array(totalSamples);
+    let level = 1.0;
+    let pos = 0.0;
     for (let bi = 0; bi < bits.length; bi++) {
-      const start = bi * SPB;
-      const mid = start + (SPB >> 1); // start + 5
-      const end = start + SPB;
+      const nextPos = pos + samplesPerBit;
+      const midPos = pos + samplesPerBit / 2.0;
+      const start = Math.floor(pos);
+      const mid = Math.floor(midPos);
+      const end = Math.floor(nextPos);
       if (bits[bi] === 1) {
         for (let i = start; i < mid; i++) w[i] = level;
-        level *= -1; // mid-bit transition
+        level *= -1.0; // mid-bit transition
         for (let i = mid; i < end; i++) w[i] = level;
-        level *= -1; // boundary transition
+        level *= -1.0; // boundary transition
       } else {
         for (let i = start; i < end; i++) w[i] = level;
-        level *= -1; // boundary transition only
+        level *= -1.0; // boundary transition only
       }
+      pos = nextPos;
     }
     return w;
   }
 
-  // Pilot tone: PILOT_BITS of logical-1 BMC (4800 Hz screech for decoder clock lock)
+  // Pilot tone: PILOT_BITS of logical-1 BMC (4500 bps screech for decoder clock lock)
   function makePilotTone() {
-    const SPB = SAMPLES_PER_BIT;
     const w = new Float32Array(PILOT_SAMPLES);
-    let level = 1;
+    let level = 1.0;
+    let pos = 0.0;
     for (let bi = 0; bi < PILOT_BITS; bi++) {
-      const start = bi * SPB;
-      const mid = start + (SPB >> 1);
-      const end = start + SPB;
-      for (let i = start; i < mid; i++) w[i] = level;
-      level *= -1;
-      for (let i = mid; i < end; i++) w[i] = level;
-      level *= -1;
+      const nextPos = pos + samplesPerBit;
+      const midPos = pos + samplesPerBit / 2.0;
+      const start = Math.floor(pos);
+      const mid = Math.floor(midPos);
+      const end = Math.floor(nextPos);
+      for (let i = start; i < mid && i < PILOT_SAMPLES; i++) w[i] = level;
+      level *= -1.0;
+      for (let i = mid; i < end && i < PILOT_SAMPLES; i++) w[i] = level;
+      level *= -1.0;
+      pos = nextPos;
     }
     return w;
   }
 
-  // RAE Framing: byte 0 of every 12-byte TDM frame MUST be 0xFF as the
+  // Pianocorder Framing: byte 0 of every 16-byte TDM frame MUST be 0xFF as the
   // sync marker. The STPE decoder uses this pattern to locate frame boundaries.
-  // Character control data occupies bytes 1-11 (bits offset by +1 byte).
+  // Character control data occupies bytes 1-15 (120 bits of animation data).
   // Byte 0 is never modified by character state — it is always 0xFF.
-  const trackTD = new Uint8Array(12);
-  const trackBD = new Uint8Array(12);
+  const trackTD = new Uint8Array(16);
+  const trackBD = new Uint8Array(16);
   trackTD[0] = 0xff;
   trackBD[0] = 0xff;
 
@@ -2011,8 +2014,8 @@ async function _renderBMCFrames(tape, statusEl) {
             // Bits 88-95 (lighting specials only) exceed the 11 data bytes
             // available and are safely skipped.
             const byteIdx = Math.floor(m.bit / 8) + 1;
-            if (byteIdx >= 12) continue; // out of frame bounds — skip
-            const bitPos = m.bit % 8; // LSB-first
+            if (byteIdx >= 16) continue; // out of frame bounds — skip
+            const bitPos = 7 - (m.bit % 8); // MSB-first — Pianocorder standard
             if (seq.state) buf[byteIdx] |= 1 << bitPos;
             else buf[byteIdx] &= ~(1 << bitPos);
           }
@@ -2020,7 +2023,7 @@ async function _renderBMCFrames(tape, statusEl) {
       } else if (seq.data && seq.character && seq.character !== "All") {
         const slot = slotMap.get(seq.character);
         // +1 byte offset for RAE sync byte; keep byte 0 = 0xFF
-        if (slot !== undefined && slot < 11)
+        if (slot !== undefined && slot < 15)
           trackTD[slot + 1] = seq.data[seq.data.length - 1];
       }
     }
