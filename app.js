@@ -2140,6 +2140,7 @@ async function export4chWAV() {
       outR,
       outOffset,
       PILOT_SAMPLES: pilotSamples,
+      SAMPLE_RATE,
       tape: t,
     } = await _renderBMCFrames(tape, statusEl);
     statusEl.textContent = "Encoding 4-ch broadcast WAV…";
@@ -2191,6 +2192,7 @@ async function exportShowFile() {
       outR,
       outOffset,
       PILOT_SAMPLES: pilotSamples,
+      SAMPLE_RATE,
       bandKey,
       tape: t,
     } = await _renderBMCFrames(tape, statusEl);
