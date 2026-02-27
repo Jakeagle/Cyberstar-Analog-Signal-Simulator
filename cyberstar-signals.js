@@ -459,16 +459,16 @@ class CyberstarSignalGenerator {
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * Encode a 4-channel broadcast WAV ready for ProgramBlue / STPE import.
+   * Encode a 4-channel broadcast WAV for listening/archival.
    *
-   * Channel layout — RAE original 4-track tape order:
-   *   Ch 0 — Track TD (Treble Data BMC signal) ← SPTE data decoder input
-   *   Ch 1 — Track BD (Bass Data BMC signal)   ← SPTE data decoder input
-   *   Ch 2 — Music Left                         ← SPTE audio output
-   *   Ch 3 — Music Right                        ← SPTE audio output
+   * Channel layout (listening/reference format, matches .shw forensics):
+   *   Ch 0 — Music Left   ← audio output
+   *   Ch 1 — Music Right  ← audio output
+   *   Ch 2 — Track TD (Treble Data BMC signal)
+   *   Ch 3 — Track BD (Bass Data BMC signal)
    *
-   * SPTE reads Ch0/Ch1 through its BMC decoder for animatronic control
-   * and routes Ch2/Ch3 to the speaker output.
+   * NOTE: For SPTE "Record" ingestion use exportShowtapeWav() instead —
+   * SPTE reads Ch0=TD and Ch1=BD (2-channel hardware showtape format).
    *
    * @param {Float32Array} tdData   TD BMC signal (pilot + show frames)
    * @param {Float32Array} bdData   BD BMC signal (pilot + show frames)
@@ -537,7 +537,6 @@ class CyberstarSignalGenerator {
 
     // Interleave: [MusicL, MusicR, TD, BD] per sample-frame
     // Ch0=Music L, Ch1=Music R, Ch2=TD, Ch3=BD
-    // SPTE uses Ch0/1 for audio output and Ch2/3 for BMC data decoding.
     let off = 44;
     for (let i = 0; i < len; i++) {
       writeS16(off, mL[i] || 0); // Ch0 Music L
@@ -551,6 +550,76 @@ class CyberstarSignalGenerator {
         Math.max(-SIGNAL_PEAK, Math.min(SIGNAL_PEAK, bdData[i] || 0)),
       ); // Ch3 BD
       off += 8;
+    }
+
+    return new Blob([buf], { type: "audio/wav" });
+  }
+
+  /**
+   * Encode a 2-channel showtape WAV for SPTE "Record" ingestion.
+   *
+   * This matches the format output by real Rock-afire Explosion hardware:
+   *   Ch 0 — Track TD (Treble Data BMC signal) ← SPTE reads this for animatronic control
+   *   Ch 1 — Track BD (Bass Data BMC signal)   ← SPTE reads this for animatronic control
+   *
+   * No music channels — SPTE's Record function was designed to capture from
+   * hardware equipment that outputs signals only (not mixed with audio).
+   * Load your music separately in SPTE after recording.
+   *
+   * @param {Float32Array} tdData  TD BMC signal (pilot + show frames)
+   * @param {Float32Array} bdData  BD BMC signal (pilot + show frames)
+   * @returns {Blob} 2-channel 44.1kHz 16-bit PCM WAV Blob for SPTE Record
+   */
+  exportShowtapeWav(tdData, bdData) {
+    const SAMPLE_RATE = 44100;
+    const NUM_CHANNELS = 2;
+    const BITS = 16;
+    const SIGNAL_PEAK = 0.75;
+
+    const len = tdData.length;
+    const blockAlign = NUM_CHANNELS * (BITS / 8); // 4 bytes per sample-frame
+    const byteRate = SAMPLE_RATE * blockAlign; // 176400 @ 44.1kHz
+    const dataBytes = len * blockAlign;
+
+    const buf = new ArrayBuffer(44 + dataBytes);
+    const view = new DataView(buf);
+
+    function writeStr(off, str) {
+      for (let i = 0; i < str.length; i++)
+        view.setUint8(off + i, str.charCodeAt(i));
+    }
+    function writeS16(off, f) {
+      const s = Math.max(-1, Math.min(1, f));
+      view.setInt16(off, Math.round(s < 0 ? s * 0x8000 : s * 0x7fff), true);
+    }
+
+    // Standard PCM WAV header
+    writeStr(0, "RIFF");
+    view.setUint32(4, 36 + dataBytes, true);
+    writeStr(8, "WAVE");
+    writeStr(12, "fmt ");
+    view.setUint32(16, 16, true); // fmt chunk size = 16 (PCM)
+    view.setUint16(20, 1, true); // AudioFormat = 1 (PCM)
+    view.setUint16(22, NUM_CHANNELS, true); // nChannels = 2
+    view.setUint32(24, SAMPLE_RATE, true); // nSamplesPerSec = 44100
+    view.setUint32(28, byteRate, true); // nAvgBytesPerSec = 176400
+    view.setUint16(32, blockAlign, true); // nBlockAlign = 4
+    view.setUint16(34, BITS, true); // wBitsPerSample = 16
+    writeStr(36, "data");
+    view.setUint32(40, dataBytes, true);
+
+    // Interleave: [TD, BD] per sample-frame — Ch0=TD, Ch1=BD
+    let off = 44;
+    for (let i = 0; i < len; i++) {
+      writeS16(
+        off,
+        Math.max(-SIGNAL_PEAK, Math.min(SIGNAL_PEAK, tdData[i] || 0)),
+      ); // Ch0 TD
+      writeS16(
+        off + 2,
+        Math.max(-SIGNAL_PEAK, Math.min(SIGNAL_PEAK, bdData[i] || 0)),
+      ); // Ch1 BD
+      off += 4;
     }
 
     return new Blob([buf], { type: "audio/wav" });

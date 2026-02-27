@@ -324,6 +324,9 @@ function setupEventListeners() {
   document
     .getElementById("export-showtape-btn")
     .addEventListener("click", exportShowFile);
+  document
+    .getElementById("export-2ch-spte-btn")
+    .addEventListener("click", export2chSPTE);
 
   // Stage View Toggle
   document
@@ -2157,7 +2160,7 @@ async function export4chWAV() {
       pilotSamples,
       SAMPLE_RATE,
     );
-    // Route through exportBroadcastWav: Ch0=TD, Ch1=BD, Ch2=MusicL, Ch3=MusicR
+    // exportBroadcastWav: Ch0=MusicL, Ch1=MusicR, Ch2=TD, Ch3=BD (4-channel listening format)
     const blob = signalGenerator.exportBroadcastWav(
       outL.subarray(0, outOffset),
       outR.subarray(0, outOffset),
@@ -2210,7 +2213,7 @@ async function exportShowFile() {
       pilotSamples,
       SAMPLE_RATE,
     );
-    // exportBroadcastWav: Ch0=TD, Ch1=BD, Ch2=MusicL, Ch3=MusicR (RAE 4-track layout)
+    // exportBroadcastWav: Ch0=MusicL, Ch1=MusicR, Ch2=TD, Ch3=BD (4-channel listening format)
     const blob = signalGenerator.exportBroadcastWav(
       outL.subarray(0, outOffset),
       outR.subarray(0, outOffset),
@@ -2248,6 +2251,51 @@ async function exportShowFile() {
 // ── (legacy stub kept for console compatibility) ───────────────────────────
 async function exportSignalWAV() {
   return exportSignalOnly();
+}
+
+// ── Button 4: 2-channel SPTE Showtape WAV (Ch0=TD, Ch1=BD, no music) ──────
+// SPTE's "Record" was built to capture from real RFE hardware equipment that
+// outputs 2 channels: Ch0=TD (Treble Data) and Ch1=BD (Bass Data), no music.
+// Feed this WAV to SPTE's Record button → it decodes BMC → creates a valid .rshw.
+async function export2chSPTE() {
+  const g = _exportGuard("export-2ch-spte-btn");
+  if (!g) return;
+  const { tape, btn, statusEl } = g;
+  try {
+    signalGenerator.isExporting = true;
+    const {
+      outL,
+      outR,
+      outOffset,
+      tape: t,
+    } = await _renderBMCFrames(tape, statusEl);
+    statusEl.textContent = "Encoding 2-ch SPTE showtape WAV…";
+    await new Promise((r) => setTimeout(r, 0));
+
+    // 2-channel: Ch0=TD, Ch1=BD — no music, matches real RFE hardware output format
+    const blob = signalGenerator.exportShowtapeWav(
+      outL.subarray(0, outOffset),
+      outR.subarray(0, outOffset),
+    );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${t.title.replace(/[^a-z0-9_\-]/gi, "_")}_spte_showtape.wav`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 15000);
+
+    statusEl.style.color = "#0f8";
+    statusEl.textContent = `✓ Downloaded: ${t.title} — 2-ch SPTE showtape (Ch0=TD, Ch1=BD). Load this in SPTE via Record button.`;
+  } catch (err) {
+    statusEl.style.color = "#f44";
+    statusEl.textContent = `✗ ${err.message}`;
+    console.error("2-ch showtape export error:", err);
+  } finally {
+    signalGenerator.isExporting = false;
+    btn.disabled = false;
+  }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
