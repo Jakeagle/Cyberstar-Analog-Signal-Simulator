@@ -1,19 +1,19 @@
 """
 Step B: Bit-level BMC decoder. Extracts edges -> bits -> frame dumps.
 Usage: python tools/decode_bmc.py path/to/file_4ch.wav [td_ch] [bd_ch]
-  td_ch / bd_ch default to 0 / 1 (change if channels are swapped)
+  td_ch / bd_ch default to 2 / 3 (Ch2=TD, Ch3=BD per SPTE spec: music on Ch0/1, data on Ch2/3)
 """
 import sys
 import soundfile as sf
 import numpy as np
 
 if len(sys.argv) < 2:
-    print("Usage: python tools/decode_bmc.py file.wav [td_ch=0] [bd_ch=1]")
+    print("Usage: python tools/decode_bmc.py file.wav [td_ch=2] [bd_ch=3]")
     raise SystemExit
 
 path   = sys.argv[1]
-td_idx      = int(sys.argv[2])   if len(sys.argv) > 2 else 0
-bd_idx      = int(sys.argv[3])   if len(sys.argv) > 3 else 1
+td_idx      = int(sys.argv[2])   if len(sys.argv) > 2 else 2
+bd_idx      = int(sys.argv[3])   if len(sys.argv) > 3 else 3
 FORCE_BPS   = float(sys.argv[4]) if len(sys.argv) > 4 else 4500.0  # known Pianocorder rate
 
 data, sr = sf.read(path, always_2d=True)

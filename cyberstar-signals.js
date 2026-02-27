@@ -478,9 +478,9 @@ class CyberstarSignalGenerator {
     const SAMPLE_RATE = 44100; // STPE requires 44.1 kHz
     const NUM_CHANNELS = 4;
     const BITS = 16;
-    // 0.6 keeps the BMC signal well within SPTE's detection range without
-    // overdriving the decoder input — real tapes ran at approx ±0.6 amplitude.
-    const SIGNAL_PEAK = 0.6;
+    // 0.75 keeps the BMC signal well within SPTE's detection range without
+    // overdriving the decoder input — Pro-Grade spec targets ±0.8; 0.75 gives headroom.
+    const SIGNAL_PEAK = 0.75;
 
     const len = tdData.length;
     const mL = musicL || new Float32Array(len);
@@ -494,14 +494,14 @@ class CyberstarSignalGenerator {
     // AudioFormat = 1 (PCM). No cbSize, no ChannelMask, no SubFormat GUID.
     // This is the exact format STPE/Unity ByteArrayToAudioClip accepts.
     //
-    // CHANNEL ORDER — critical for STPE:
-    //   STPE's BMC decoder reads Ch0 and Ch1 as the data/signal tracks.
-    //   STPE routes Ch2 and Ch3 to the audio output (speakers).
-    //   Matches the original RAE 4-track tape layout:
-    //     Track 1 (Ch0) = TD  (Treble Data — animatronic control signal)
-    //     Track 2 (Ch1) = BD  (Bass Data   — animatronic control signal)
-    //     Track 3 (Ch2) = Music L
-    //     Track 4 (Ch3) = Music R
+    // CHANNEL ORDER — critical for SPTE:
+    //   SPTE routes Ch0 and Ch1 to the audio output (speakers).
+    //   SPTE's BMC decoder reads Ch2 and Ch3 as the data/signal tracks.
+    //   Matches the original RAE 4-track tape layout (Pro-Grade-Specs.md):
+    //     Track 1 (Ch0) = Music L
+    //     Track 2 (Ch1) = Music R
+    //     Track 3 (Ch2) = TD  (Treble Data — animatronic control signal)
+    //     Track 4 (Ch3) = BD  (Bass Data   — animatronic control signal)
     const buf = new ArrayBuffer(44 + dataBytes);
     const view = new DataView(buf);
 
@@ -533,20 +533,21 @@ class CyberstarSignalGenerator {
     writeStr(36, "data");
     view.setUint32(40, dataBytes, true);
 
-    // Interleave: [TD, BD, MusicL, MusicR] per sample-frame
-    // Ch0=TD, Ch1=BD, Ch2=Music L, Ch3=Music R
+    // Interleave: [MusicL, MusicR, TD, BD] per sample-frame
+    // Ch0=Music L, Ch1=Music R, Ch2=TD, Ch3=BD
+    // SPTE uses Ch0/1 for audio output and Ch2/3 for BMC data decoding.
     let off = 44;
     for (let i = 0; i < len; i++) {
+      writeS16(off, mL[i] || 0); // Ch0 Music L
+      writeS16(off + 2, mR[i] || 0); // Ch1 Music R
       writeS16(
-        off,
+        off + 4,
         Math.max(-SIGNAL_PEAK, Math.min(SIGNAL_PEAK, tdData[i] || 0)),
-      ); // Ch0 TD
+      ); // Ch2 TD
       writeS16(
-        off + 2,
+        off + 6,
         Math.max(-SIGNAL_PEAK, Math.min(SIGNAL_PEAK, bdData[i] || 0)),
-      ); // Ch1 BD
-      writeS16(off + 4, mL[i] || 0); // Ch2 Music L
-      writeS16(off + 6, mR[i] || 0); // Ch3 Music R
+      ); // Ch3 BD
       off += 8;
     }
 
