@@ -537,12 +537,17 @@ class CyberstarSignalGenerator {
     // Ch0=TD, Ch1=BD, Ch2=Music L, Ch3=Music R
     let off = 44;
     for (let i = 0; i < len; i++) {
-      writeS16(off,     Math.max(-SIGNAL_PEAK, Math.min(SIGNAL_PEAK, tdData[i] || 0))); // Ch0 TD
-      writeS16(off + 2, Math.max(-SIGNAL_PEAK, Math.min(SIGNAL_PEAK, bdData[i] || 0))); // Ch1 BD
-      writeS16(off + 4, mL[i] || 0);                                                     // Ch2 Music L
-      writeS16(off + 6, mR[i] || 0);                                                     // Ch3 Music R
+      writeS16(
+        off,
+        Math.max(-SIGNAL_PEAK, Math.min(SIGNAL_PEAK, tdData[i] || 0)),
+      ); // Ch0 TD
+      writeS16(
+        off + 2,
+        Math.max(-SIGNAL_PEAK, Math.min(SIGNAL_PEAK, bdData[i] || 0)),
+      ); // Ch1 BD
+      writeS16(off + 4, mL[i] || 0); // Ch2 Music L
+      writeS16(off + 6, mR[i] || 0); // Ch3 Music R
       off += 8;
-    }
     }
 
     return new Blob([buf], { type: "audio/wav" });
