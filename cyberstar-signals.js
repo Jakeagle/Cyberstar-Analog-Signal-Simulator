@@ -459,16 +459,14 @@ class CyberstarSignalGenerator {
   /**
    * Encode a 4-channel broadcast WAV ready for ProgramBlue / STPE import.
    *
-   * Channel layout — RAE original 4-track tape order:
-   *   Ch 0 — Track TD (Treble Data BMC signal) ← STPE Bit Stripper input
-   *   Ch 1 — Track BD (Bass Data BMC signal)   ← STPE Bit Stripper input
-   *   Ch 2 — Music Left                         ← STPE audio output
-   *   Ch 3 — Music Right                        ← STPE audio output
+   * Channel layout — Pianocorder / SPTE standard:
+   *   Ch 0 — Music Left                         ← SPTE audio output
+   *   Ch 1 — Music Right                        ← SPTE audio output
+   *   Ch 2 — Track TD (Treble Data BMC signal)  ← SPTE data decoder input
+   *   Ch 3 — Track BD (Bass Data BMC signal)    ← SPTE data decoder input
    *
-   * STPE reads Ch0/Ch1 through its Bit Stripper for animatronic control and
-   * routes Ch2/Ch3 to the speaker output. Previous layout had them swapped
-   * (music on 0/1, signals on 2/3), causing the BMC screech to be audible
-   * and animatronics to receive silence instead of data.
+   * SPTE routes Ch0/Ch1 to speakers and reads Ch2/Ch3 through its BMC
+   * decoder for animatronic control — matching original Pianocorder tape layout.
    *
    * @param {Float32Array} tdData   TD BMC signal (pilot + show frames)
    * @param {Float32Array} bdData   BD BMC signal (pilot + show frames)
@@ -535,20 +533,20 @@ class CyberstarSignalGenerator {
     writeStr(36, "data");
     view.setUint32(40, dataBytes, true);
 
-    // Interleave: [TD, BD, MusicL, MusicR] per sample-frame
-    // Ch0=TD, Ch1=BD, Ch2=Music L, Ch3=Music R  ← RAE 4-track layout
+    // Interleave: [MusicL, MusicR, TD, BD] per sample-frame
+    // Ch0=Music L, Ch1=Music R, Ch2=TD, Ch3=BD  ← Pianocorder/SPTE layout
     let off = 44;
     for (let i = 0; i < len; i++) {
+      writeS16(off, mL[i] || 0); // Ch0 Music L
+      writeS16(off + 2, mR[i] || 0); // Ch1 Music R
       writeS16(
-        off,
+        off + 4,
         Math.max(-SIGNAL_PEAK, Math.min(SIGNAL_PEAK, tdData[i] || 0)),
-      ); // Ch0 TD
+      ); // Ch2 TD
       writeS16(
-        off + 2,
+        off + 6,
         Math.max(-SIGNAL_PEAK, Math.min(SIGNAL_PEAK, bdData[i] || 0)),
-      ); // Ch1 BD
-      writeS16(off + 4, mL[i] || 0); // Ch2 Music L
-      writeS16(off + 6, mR[i] || 0); // Ch3 Music R
+      ); // Ch3 BD
       off += 8;
     }
 
