@@ -1893,19 +1893,19 @@ async function _renderBMCFrames(tape, statusEl) {
     if (i < 8) slotMap.set(name, i);
   });
 
-  // SPTE requires uncompressed 44.1 kHz audio with exactly 10 samples per bit
-  // (effective bit rate: 44100 / 10 = 4410 bps).
+  // STPE requires 44,100 Hz. SAMPLES_PER_BIT is fixed at 10 (integer constant)
+  // so there is no rounding — every bit occupies exactly 10 samples.
   const SAMPLE_RATE = 44100;
   const BITRATE = 4800;
   const FRAME_RATE = 50;
   // Export: BMC data channels must be at full amplitude regardless of the UI
   // volume knob. Volume only controls the speaker output during live playback.
-  // The exportBroadcastWav function clamps to ±SIGNAL_PEAK (0.95) as the
+  // The exportBroadcastWav function clamps to ±SIGNAL_PEAK (0.7) as the
   // final amplitude cap, so we render at scale=1.0 here.
   const scale = 1.0;
   const FRAME_MS = 1000 / FRAME_RATE;
   const bitsPerFrame = 12 * 8;
-  const SAMPLES_PER_BIT = 10; // fixed: 44100 Hz / 10 SPB = 4410 bps
+  const SAMPLES_PER_BIT = 10; // fixed integer: no rounding, no drift
   const samplesPerFrame = bitsPerFrame * SAMPLES_PER_BIT; // 960 samples
   const totalFrames = Math.ceil(tape.duration / FRAME_MS);
 
