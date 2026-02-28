@@ -41,21 +41,6 @@ const BAND_CONFIG = {
   },
 };
 
-/**
- * Helper function to get monitor ID for a character name
- */
-function getMonitorIdForCharacter(characterName) {
-  // Search all bands for the character
-  for (const band of Object.values(BAND_CONFIG)) {
-    for (const ch of Object.values(band.characters)) {
-      if (ch.name === characterName) {
-        return ch.monitorId;
-      }
-    }
-  }
-  return null;
-}
-
 let playbackSchedule = [];
 let playbackStartTime = null;
 
@@ -67,25 +52,227 @@ let songGainNode = null; // gain node for the song
 // localStorage key for persisted custom showtapes
 const CUSTOM_SHOWS_KEY = "cyberstar_custom_shows";
 
-// ── Signal Tester state ────────────────────────────────────────────────────
-const stState = {
-  frames: [], // [{td: Uint8Array(12), bd: Uint8Array(12)}, ...]
-  musicBuffer: null, // AudioBuffer for music channels (4ch files)
-  is4ch: false,
-  isPlaying: false,
-  currentFrame: 0,
-  totalFrames: 0,
-  totalDurationMs: 0,
-  playbackTimer: null,
-  musicSource: null,
-  musicGain: null,
-  startTime: 0, // Date.now() when play was pressed (adjusted for seek)
-};
+// ─────────────────────────────────────────────────────────────────────────
+// Python Progress Modal controller
+// Maps known progress-message substrings to bar percentages.
+// Both buildCustomShowtape() and export4chWAV() call pyModal.open/update/close.
+// ─────────────────────────────────────────────────────────────────────────
+const pyModal = (() => {
+  // First matching pattern wins; ordered by typical call sequence.
+  const STEP_MAP = [
+    // SAM — audio analysis + show generation
+    ["Preparing audio", 8],
+    ["Downsampled", 22],
+    ["Loading Python", 32],
+    ["Running Python analysis", 48],
+    ["Analysis complete", 95],
+    // SGM — 4-ch WAV export
+    ["Loading Python export", 10],
+    ["Generating BMC frames", 38],
+    ["Mixing music channels", 72],
+    ["Encoding 4-channel WAV", 88],
+    ["Done", 100],
+  ];
 
-// ── v2: LED grid visual-latch state ────────────────────────────────────────
-const LED_LATCH_MS = 90; // ms to hold LED lit after slot clears
-const ledLastActive = new Array(8).fill(0); // timestamp of last activation per slot
-const ledLastByte = new Uint8Array(8); // last non-zero byte seen per slot
+  let _closeTimer = null;
+
+  function _bar() {
+    return document.getElementById("py-modal-bar");
+  }
+
+  function _setBar(pct) {
+    const b = _bar();
+    if (b) b.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+  }
+
+  function open(title) {
+    clearTimeout(_closeTimer);
+    const el = document.getElementById("py-modal");
+    if (!el) return;
+    const t = document.getElementById("py-modal-title");
+    const m = document.getElementById("py-modal-msg");
+    if (t) t.textContent = title || "Working\u2026";
+    if (m) m.textContent = "";
+    _setBar(0);
+    el.hidden = false;
+    void el.offsetWidth; // force reflow so the CSS transition fires
+    el.classList.add("py-modal-visible");
+  }
+
+  function update(msg) {
+    const m = document.getElementById("py-modal-msg");
+    if (m) m.textContent = msg;
+
+    for (const [pattern, pct] of STEP_MAP) {
+      if (msg.includes(pattern)) {
+        _setBar(pct);
+        if (pct >= 100) close();
+        return;
+      }
+    }
+    // Unknown message — nudge bar so it looks alive
+    const b = _bar();
+    if (b) {
+      const cur = parseFloat(b.style.width) || 0;
+      if (cur < 90) _setBar(cur + 3);
+    }
+  }
+
+  function close() {
+    clearTimeout(_closeTimer);
+    _closeTimer = setTimeout(() => {
+      const el = document.getElementById("py-modal");
+      if (!el) return;
+      el.classList.remove("py-modal-visible");
+      setTimeout(() => {
+        el.hidden = true;
+        _setBar(0);
+      }, 300);
+    }, 900); // linger briefly so the user sees the final state
+  }
+
+  return { open, update, close };
+})();
+
+// Ensure Pyodide is loaded and initialized. Returns the pyodide instance.
+async function ensurePyodide() {
+  if (window.pyodide) return window.pyodide;
+  pyModal.open("Loading Python");
+  const versions = [
+    "0.23.4",
+    "0.23.3",
+    "0.22.1",
+    "0.21.3",
+  ];
+
+  for (const v of versions) {
+    try {
+      pyModal.update(`Loading Pyodide v${v}`);
+      // remove any previously injected script so we can try a different version
+      const prev = document.getElementById("pyodide-script");
+      if (prev) prev.remove();
+
+      await new Promise((res, rej) => {
+        const s = document.createElement("script");
+        s.id = "pyodide-script";
+        s.src = `https://cdn.jsdelivr.net/pyodide/v${v}/full/pyodide.js`;
+        s.onload = res;
+        s.onerror = rej;
+        document.head.appendChild(s);
+      });
+
+      // Attempt to initialize
+      window.pyodide = await loadPyodide({ indexURL: `https://cdn.jsdelivr.net/pyodide/v${v}/full/` });
+      pyModal.update(`Pyodide v${v} ready`);
+      pyModal.close();
+      return window.pyodide;
+    } catch (err) {
+      console.warn(`Pyodide v${v} failed:`, err);
+      // try next version
+      pyModal.update(`Pyodide v${v} failed, trying older build…`);
+      // small delay to allow UI update
+      await new Promise((r) => setTimeout(r, 200));
+      // continue to next version
+    }
+  }
+
+  pyModal.close();
+  throw new Error("Unable to load a working Pyodide build in this environment.");
+}
+
+// POST a WAV file to the local Python bridge server and return the fetch Response.
+async function convertViaLocalServer(file) {
+  const fd = new FormData();
+  fd.append('wav', file, file.name || 'input.wav');
+  const resp = await fetch('http://127.0.0.1:5000/py-bridge/convert', {
+    method: 'POST',
+    body: fd,
+  });
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(`Bridge error: ${resp.status} ${txt}`);
+  }
+  return resp;
+}
+
+// In-browser WAV -> .rshw converter (no Python)
+async function convertWavToRshwInBrowser(file, statusEl = null) {
+  // Read file into ArrayBuffer
+  const arrayBuffer = await file.arrayBuffer();
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) throw new Error('Web Audio API not supported');
+  const ctx = new AudioCtx();
+  const audioBuf = await ctx.decodeAudioData(arrayBuffer.slice(0));
+
+  const channels = audioBuf.numberOfChannels;
+  if (channels !== 4) throw new Error(`Expected 4 channels, got ${channels}`);
+
+  const sampleRate = audioBuf.sampleRate;
+  const nframes = audioBuf.length;
+
+  // Build interleaved Int16 PCM (frame-major: ch0,ch1,ch2,ch3 per sample)
+  const tmp = new Int16Array(nframes * 4);
+  for (let i = 0; i < nframes; i++) {
+    for (let ch = 0; ch < 4; ch++) {
+      const s = audioBuf.getChannelData(ch)[i] || 0;
+      let v = Math.max(-1, Math.min(1, s));
+      tmp[i * 4 + ch] = v < 0 ? Math.round(v * 32768) : Math.round(v * 32767);
+    }
+  }
+
+  // Build signalData: one int32 per frame, bit0=ch0, bit1=ch1, ... threshold 0
+  const sig = new Int32Array(nframes);
+  for (let i = 0; i < nframes; i++) {
+    let bits = 0;
+    for (let ch = 0; ch < 4; ch++) {
+      const v = tmp[i * 4 + ch];
+      if (v >= 0) bits |= (1 << ch);
+    }
+    sig[i] = bits;
+  }
+
+  // Simple .rshw container format (project-local):
+  // [magic 'RSHW' (4)] [version u8] [sampleRate u32 LE] [channels u8]
+  // [nframes u32 LE] [audioBytes u32 LE] [audioData (...)] [nsignals u32 LE] [signalData (n * i32 LE)]
+  const magic = new TextEncoder().encode('RSHW');
+  const version = 1;
+  const header = new ArrayBuffer(4 + 1 + 4 + 1 + 4 + 4);
+  const hdv = new DataView(header);
+  let off = 0;
+  // magic
+  new Uint8Array(header, 0, 4).set(magic);
+  off += 4;
+  hdv.setUint8(off, version); off += 1;
+  hdv.setUint32(off, sampleRate, true); off += 4;
+  hdv.setUint8(off, 4); off += 1;
+  hdv.setUint32(off, nframes, true); off += 4;
+  const audioBytes = tmp.byteLength;
+  hdv.setUint32(off, audioBytes, true); off += 4;
+
+  // Assemble final buffer
+  const outBuf = new Uint8Array(header.byteLength + audioBytes + 4 + sig.byteLength);
+  let pos = 0;
+  outBuf.set(new Uint8Array(header), pos); pos += header.byteLength;
+  outBuf.set(new Uint8Array(tmp.buffer), pos); pos += audioBytes;
+  // nsignals
+  const dv = new DataView(outBuf.buffer);
+  dv.setUint32(pos, sig.length, true); pos += 4;
+  // signalData as i32 LE
+  for (let i = 0; i < sig.length; i++) { dv.setInt32(pos + i * 4, sig[i], true); }
+
+  // Trigger download
+  const blob = new Blob([outBuf], { type: 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = file.name.replace(/\.wav$/i, '.rshw');
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+  if (statusEl) statusEl.textContent = `Exported rshw: ${a.download}`;
+}
 
 // Initialize the application
 document.addEventListener("DOMContentLoaded", function () {
@@ -151,144 +338,196 @@ document.addEventListener("DOMContentLoaded", function () {
   loadCustomShowtapes(); // populates SHOWTAPES before the dropdown is built
   updateShowtapeList();
 
-  // Set initial band title
-  const bandConfig = BAND_CONFIG[currentBand];
-  document.getElementById("band-title").textContent =
-    `${bandConfig.title} - Signal Monitors`;
-
-  // Configure the TDM stream slot assignments for the initial band
-  setupCurrentBandSlots(); // also calls buildLEDGrid()
-
-  // Frame Sync Indicator logic
-  const syncLed = document.getElementById("sync-led");
-  signalGenerator.onFrameSync = () => {
-    if (!syncLed) return;
-    syncLed.classList.add("active");
-    setTimeout(() => syncLed.classList.remove("active"), 15);
-  };
-
-  // Poll the LED grid at ~25 fps even when no show is playing (covers manual sends)
-  setInterval(updateLEDGrid, 40);
-
-  updateSignalMonitor("System initialized. TDM stream ready.");
+  // Poll the stage view at ~25 fps
+  setInterval(updateStageArena, 40);
 });
-
-/**
- * Tell the signal generator which characters occupy which TDM slots
- * for the currently active band.
- */
-function setupCurrentBandSlots() {
-  // Clear the tracks before starting a new band's show
-  signalGenerator.clearAllCharacterStates();
-  buildLEDGrid(); // refresh labels with the new dual 96-bit tracks
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// v2 — TDM Frame Monitor: Dual 128-bit (16-byte) LED bit-grids
-// Based on Official RFE Specification (TD and BD tracks)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Build (or rebuild) the LED grid DOM. Now creates TWO grids for TD and BD.
- */
-function buildLEDGrid() {
-  const container = document.getElementById("led-grid");
-  if (!container) return;
-  container.innerHTML = "";
-
-  // Create TD Grid
-  const tdContainer = document.createElement("div");
-  tdContainer.className = "track-monitor";
-  tdContainer.innerHTML = "<h4>TRACK TD (Left / Treble)</h4>";
-  const tdGrid = document.createElement("div");
-  tdGrid.id = "led-grid-td";
-  tdGrid.className = "led-grid-v2";
-  tdContainer.appendChild(tdGrid);
-  container.appendChild(tdContainer);
-
-  // Create BD Grid
-  const bdContainer = document.createElement("div");
-  bdContainer.className = "track-monitor";
-  bdContainer.innerHTML = "<h4>TRACK BD (Right / Bass)</h4>";
-  const bdGrid = document.createElement("div");
-  bdGrid.id = "led-grid-bd";
-  bdGrid.className = "led-grid-v2";
-  bdContainer.appendChild(bdGrid);
-  container.appendChild(bdContainer);
-
-  const createTrack = (grid, prefix) => {
-    for (let s = 0; s < 16; s++) {
-      const row = document.createElement("div");
-      row.className = "led-row";
-      const label = document.createElement("span");
-      label.className = "led-label";
-      label.textContent = `Byte ${s}`;
-      row.appendChild(label);
-      const bits = document.createElement("div");
-      bits.className = "led-bits";
-      for (let b = 7; b >= 0; b--) {
-        const led = document.createElement("span");
-        led.className = "led";
-        led.id = `led-${prefix}-${s}-${b}`;
-        bits.appendChild(led);
-      }
-      row.appendChild(bits);
-      const hex = document.createElement("span");
-      hex.className = "led-hex";
-      hex.id = `led-hex-${prefix}-${s}`;
-      hex.textContent = "0x00";
-      row.appendChild(hex);
-      grid.appendChild(row);
-    }
-  };
-
-  createTrack(tdGrid, "td");
-  createTrack(bdGrid, "bd");
-}
-
-/**
- * Update the dual LED grids from the signal generator's 16-byte buffers.
- */
-function updateLEDGrid() {
-  if (!signalGenerator) return;
-
-  const update = (buf, lastBuf, prefix) => {
-    for (let s = 0; s < 16; s++) {
-      if (buf[s] === lastBuf[s]) continue; // byte unchanged — skip DOM thrash
-      lastBuf[s] = buf[s];
-      const val = buf[s];
-      const hexEl = document.getElementById(`led-hex-${prefix}-${s}`);
-      if (hexEl) {
-        hexEl.textContent = `0x${val.toString(16).toUpperCase().padStart(2, "0")}`;
-        hexEl.style.color = val ? "#00d4ff" : "#333";
-      }
-      for (let b = 7; b >= 0; b--) {
-        const led = document.getElementById(`led-${prefix}-${s}-${b}`);
-        if (led) {
-          const on = (val >> b) & 1;
-          led.className = on ? "led led-on" : "led";
-        }
-      }
-    }
-  };
-
-  update(signalGenerator.trackTD, signalGenerator.trackTD_last, "td");
-  update(signalGenerator.trackBD, signalGenerator.trackBD_last, "bd");
-
-  // Update the stage if open
-  if (document.getElementById("stage-modal").style.display === "block") {
-    updateStageArena();
-  }
-}
 
 /**
  * Set up all event listeners
  */
 function setupEventListeners() {
-  // Band selector
+  // CSO File Previewer: SPTE rshw export wiring
+  const svizExportRshwBtn = document.getElementById("sviz-export-rshw-btn");
+  const svizFileInput = document.getElementById("sviz-file-input");
+  if (svizExportRshwBtn && svizFileInput) {
+    svizExportRshwBtn.addEventListener("click", async () => {
+      if (!svizFileInput.files?.length) return;
+      const wavFile = svizFileInput.files[0];
+      const statusEl = document.getElementById("sviz-status");
+      statusEl.textContent = "Converting to SPTE rshw…";
+      // Try fast in-browser converter first
+      try {
+        await convertWavToRshwInBrowser(wavFile, statusEl);
+        return;
+      } catch (err) {
+        console.warn('In-browser converter failed, falling back to Pyodide/bridge', err);
+        statusEl.textContent = 'In-browser conversion failed, trying Python fallback…';
+      }
+      try {
+        // Read file as ArrayBuffer
+        const arrayBuffer = await wavFile.arrayBuffer();
+        // Ensure Pyodide is available and load the converter module
+        await ensurePyodide();
+        try {
+          await window.pyodide.runPythonAsync("import wav_to_rshw");
+        } catch (e) {
+          await window.pyodide.runPythonAsync(`import sys; sys.path.append('tools')`);
+          await window.pyodide.runPythonAsync(
+            await (await fetch("tools/wav_to_rshw.py")).text(),
+          );
+        }
+        // Write WAV to Pyodide FS
+        window.pyodide.FS.writeFile(
+          "/tmp_input.wav",
+          new Uint8Array(arrayBuffer),
+        );
+        // Run conversion
+        await window.pyodide.runPythonAsync(
+          `import wav_to_rshw; wav_to_rshw.wav_to_rshw('/tmp_input.wav', '/tmp_output.rshw')`,
+        );
+        // Read output file
+        const rshwBytes = window.pyodide.FS.readFile("/tmp_output.rshw");
+        // Trigger download
+        const blob = new Blob([rshwBytes], {
+          type: "application/octet-stream",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = wavFile.name.replace(/\.wav$/i, ".rshw");
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+        statusEl.textContent = `Exported rshw: ${a.download}`;
+      } catch (err) {
+        console.error(err);
+        // If Pyodide failed (WASM/memory or module error), try local server fallback
+        try {
+          statusEl.textContent = "Pyodide failed — trying local Python bridge…";
+          const resp = await convertViaLocalServer(wavFile);
+          const blob = await resp.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = wavFile.name.replace(/\.wav$/i, ".rshw");
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 10000);
+          statusEl.textContent = `Exported rshw: ${a.download}`;
+        } catch (err2) {
+          console.error('Local bridge failed', err2);
+          // Store pending export so the user can start the helper and resume
+          window._pendingRshw = wavFile;
+          // Open helper modal to guide user to download/run the helper
+          const helperModal = document.getElementById('helper-download-modal');
+          if (helperModal) {
+            helperModal.hidden = false;
+            helperModal.classList.add('py-modal-visible');
+          }
+          if (statusEl) statusEl.textContent = 'Local bridge not running — start helper to resume.';
+        }
+      }
+    });
+  }
+
   document
     .getElementById("band-select")
     .addEventListener("change", onBandSelected);
+
+  // Local bridge check wiring
+  const checkBridgeBtn = document.getElementById('sviz-check-bridge-btn');
+  const bridgeStatusEl = document.getElementById('sviz-bridge-status');
+  if (checkBridgeBtn && bridgeStatusEl) {
+    checkBridgeBtn.addEventListener('click', async () => {
+      bridgeStatusEl.textContent = 'Checking…';
+      try {
+        const r = await fetch('http://127.0.0.1:5000/py-bridge/health');
+        if (r.ok) {
+          bridgeStatusEl.textContent = 'Local bridge: available';
+          bridgeStatusEl.style.color = 'green';
+        } else {
+          bridgeStatusEl.textContent = 'Local bridge: unavailable';
+          bridgeStatusEl.style.color = '#888';
+        }
+      } catch (err) {
+        bridgeStatusEl.textContent = 'Local bridge: not running';
+        bridgeStatusEl.style.color = '#888';
+      }
+    });
+  }
+
+  // Bridge help modal wiring
+  const bridgeHelpBtn = document.getElementById('sviz-bridge-help-btn');
+  const bridgeHelpModal = document.getElementById('bridge-help-modal');
+  const bridgeHelpClose = document.getElementById('bridge-help-close');
+  if (bridgeHelpBtn && bridgeHelpModal) {
+    bridgeHelpBtn.addEventListener('click', () => {
+      bridgeHelpModal.hidden = false;
+      bridgeHelpModal.classList.add('py-modal-visible');
+    });
+  }
+  if (bridgeHelpClose && bridgeHelpModal) {
+    bridgeHelpClose.addEventListener('click', () => {
+      bridgeHelpModal.classList.remove('py-modal-visible');
+      setTimeout(() => (bridgeHelpModal.hidden = true), 300);
+    });
+  }
+
+  // Helper download modal wiring
+  const helperDownloadBtn = document.getElementById('sviz-download-helper-btn');
+  const helperModal = document.getElementById('helper-download-modal');
+  const helperClose = document.getElementById('helper-download-close');
+  const helperStartedBtn = document.getElementById('helper-started-btn');
+  if (helperDownloadBtn && helperModal) {
+    helperDownloadBtn.addEventListener('click', () => {
+      helperModal.hidden = false;
+      helperModal.classList.add('py-modal-visible');
+    });
+  }
+  if (helperClose && helperModal) {
+    helperClose.addEventListener('click', () => {
+      helperModal.classList.remove('py-modal-visible');
+      setTimeout(() => (helperModal.hidden = true), 300);
+    });
+  }
+  if (helperStartedBtn) {
+    helperStartedBtn.addEventListener('click', async () => {
+      // Check bridge health and resume pending export if present
+      try {
+        const r = await fetch('http://127.0.0.1:5000/py-bridge/health');
+        if (r.ok) {
+          helperModal.classList.remove('py-modal-visible');
+          setTimeout(() => (helperModal.hidden = true), 300);
+          if (window._pendingRshw) {
+            const pending = window._pendingRshw;
+            window._pendingRshw = null;
+            try {
+              const resp = await convertViaLocalServer(pending);
+              const blob = await resp.blob();
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = pending.name.replace(/\.wav$/i, '.rshw');
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              setTimeout(() => URL.revokeObjectURL(url), 10000);
+              const statusEl = document.getElementById('sviz-status');
+              if (statusEl) statusEl.textContent = `Exported rshw: ${a.download}`;
+            } catch (err) {
+              console.error('Resume conversion failed', err);
+            }
+          }
+        } else {
+          alert('Helper not responding yet — ensure it is running.');
+        }
+      } catch (err) {
+        alert('Helper not running — start the helper and try again.');
+      }
+    });
+  }
 
   // Showtape player controls
   document.getElementById("play-btn").addEventListener("click", playShowtape);
@@ -309,24 +548,10 @@ function setupEventListeners() {
     .getElementById("progress-bar")
     .addEventListener("change", onProgressChanged);
 
-  // WAV file loader (song-sync panel)
-  document.getElementById("wav-input").addEventListener("change", (e) => {
-    if (e.target.files[0]) loadWAVFile(e.target.files[0]);
-  });
-
   // Export buttons
-  document
-    .getElementById("export-signal-btn")
-    .addEventListener("click", exportSignalOnly);
   document
     .getElementById("export-4ch-btn")
     .addEventListener("click", export4chWAV);
-  document
-    .getElementById("export-showtape-btn")
-    .addEventListener("click", exportShowFile);
-  document
-    .getElementById("export-2ch-spte-btn")
-    .addEventListener("click", export2chSPTE);
 
   // Stage View Toggle
   document
@@ -385,59 +610,6 @@ function setupEventListeners() {
     const band = document.getElementById("custom-show-band").value;
     buildCustomShowtape(file, title, band);
   });
-
-  // ── Signal Tester wiring ────────────────────────────────────────────────
-  const stWavInput = document.getElementById("st-wav-input");
-  const stPlayBtn = document.getElementById("st-play-btn");
-  const stStopBtn = document.getElementById("st-stop-btn");
-  const stProgress = document.getElementById("st-progress");
-
-  // Source selector — update hint text on change
-  document.querySelectorAll('input[name="st-source"]').forEach((radio) => {
-    radio.addEventListener("change", () => {
-      const hint = document.getElementById("st-source-hint");
-      if (!hint) return;
-      if (radio.value === "online") {
-        hint.textContent = "Direct decode — no signal processing applied.";
-      } else {
-        hint.textContent =
-          "4-phase forensic engine — DC filter, adaptive clock, fault-tolerant sync.";
-      }
-    });
-  });
-
-  if (stWavInput) {
-    stWavInput.addEventListener("change", (e) => {
-      const file = e.target.files[0];
-      if (file) stLoadFile(file);
-    });
-  }
-  if (stPlayBtn) {
-    stPlayBtn.addEventListener("click", () => {
-      if (stState.isPlaying) stPause();
-      else stPlay();
-    });
-  }
-  if (stStopBtn) {
-    stStopBtn.addEventListener("click", stStop);
-  }
-  if (stProgress) {
-    stProgress.addEventListener("input", (e) => {
-      const pct = parseInt(e.target.value) / 100;
-      const targetFrame = Math.floor(pct * stState.totalFrames);
-      stState.currentFrame = Math.max(
-        0,
-        Math.min(targetFrame, stState.totalFrames - 1),
-      );
-      stState.startTime =
-        Date.now() - Math.round((stState.currentFrame / 50) * 1000);
-      if (stState.isPlaying) {
-        stStopMusic();
-        stStartMusic(stState.currentFrame);
-      }
-      stUpdateProgress(stState.currentFrame);
-    });
-  }
 }
 
 /**
@@ -445,89 +617,14 @@ function setupEventListeners() {
  */
 function onBandSelected(event) {
   currentBand = event.target.value;
-  const bandConfig = BAND_CONFIG[currentBand];
 
-  // Update section title
-  document.getElementById("band-title").textContent =
-    `${bandConfig.title} - Signal Monitors`;
-
-  // Switch band monitors
-  document.getElementById("munch-band").style.display =
-    currentBand === "munch" ? "grid" : "none";
-  document.getElementById("rock-band").style.display =
-    currentBand === "rock" ? "grid" : "none";
-
-  // Clear all monitors
-  clearAllMonitors();
-
-  // Reassign TDM slot map for the new band
-  setupCurrentBandSlots();
+  // Clear TDM tracks for the new band
+  signalGenerator.clearAllCharacterStates();
 
   // If stage is open, rebuild it
-  if (document.getElementById("stage-modal").style.display === "block") {
+  if (document.getElementById("stage-modal").classList.contains("active")) {
     buildStageArena();
   }
-
-  updateSignalMonitor(`Switched to: ${bandConfig.title}`);
-}
-
-/**
- * Clear all character monitors
- */
-function clearAllMonitors() {
-  Object.values(BAND_CONFIG).forEach((bandConfig) => {
-    Object.values(bandConfig.characters).forEach((character) => {
-      const monitor = document.getElementById(character.monitorId);
-      if (monitor) {
-        monitor.innerHTML = "<p>Ready</p>";
-      }
-    });
-  });
-}
-
-/**
- * Update a character-specific monitor
- */
-function updateCharacterMonitor(channel, message) {
-  const bandConfig = BAND_CONFIG[currentBand];
-  const charKey = `ch${channel}`;
-
-  if (!bandConfig.characters[charKey]) return;
-
-  const character = bandConfig.characters[charKey];
-  const monitor = document.getElementById(character.monitorId);
-
-  if (!monitor) return;
-
-  const timestamp = new Date().toLocaleTimeString();
-  const logEntry = document.createElement("p");
-  logEntry.textContent = `[${timestamp}] ${message}`;
-
-  // Keep only last 5 messages per character
-  while (monitor.children.length >= 5) {
-    monitor.removeChild(monitor.firstChild);
-  }
-
-  monitor.appendChild(logEntry);
-}
-
-/**
- * Update character monitor by monitor element ID
- */
-function updateCharacterMonitorById(monitorId, message) {
-  const monitor = document.getElementById(monitorId);
-  if (!monitor) return;
-
-  const timestamp = new Date().toLocaleTimeString();
-  const logEntry = document.createElement("p");
-  logEntry.textContent = `[${timestamp}] ${message}`;
-
-  // Keep only last 5 messages per character
-  while (monitor.children.length >= 5) {
-    monitor.removeChild(monitor.firstChild);
-  }
-
-  monitor.appendChild(logEntry);
 }
 
 /**
@@ -578,7 +675,6 @@ function onShowtapeSelected(event) {
  */
 function playShowtape() {
   if (!currentShowtapeId) {
-    updateSignalMonitor("Please select a showtape first.");
     return;
   }
 
@@ -593,7 +689,6 @@ function playShowtape() {
   currentPlaybackState.currentTime = 0;
   currentPlaybackState.totalTime = tape.duration;
 
-  updateSignalMonitor(`Playing: ${tape.title}`);
   updateButtonStates();
 
   // Build playback schedule
@@ -672,17 +767,9 @@ function playbackLoop() {
         }
       }
 
-      // Display character movement information
+      // Signal to stage view
       if (cmd.character && cmd.movement_display) {
-        const displayText = `[${cmd.character}] ${cmd.movement_display}`;
-
-        // Route to character monitor
-        const monitorId = getMonitorIdForCharacter(cmd.character);
-        if (monitorId) {
-          updateCharacterMonitorById(monitorId, displayText);
-        }
-
-        updateSignalMonitor(displayText);
+        updateStageArena();
       }
     }
   });
@@ -715,7 +802,6 @@ function pauseShowtape() {
   signalGenerator.stopStream();
   stopSongPlayback();
 
-  updateSignalMonitor("Paused");
   updateButtonStates();
 }
 
@@ -738,7 +824,6 @@ function resumeShowtape() {
   const streamStart = signalGenerator.startStream();
   startSongPlayback(currentPlaybackState.currentTime, streamStart);
 
-  updateSignalMonitor(`Resumed: ${tape.title}`);
   updateButtonStates();
   playbackLoop();
 }
@@ -758,7 +843,6 @@ function stopShowtape() {
 
   document.getElementById("progress-bar").value = 0;
   updateTimeDisplay();
-  updateSignalMonitor("Stopped — TDM stream idle");
   updateButtonStates();
 }
 
@@ -830,25 +914,6 @@ function onProgressChanged(event) {
  * The AudioContext from signalGenerator is shared so both the BMC stream
  * and the song are driven by the same audio clock.
  */
-async function loadWAVFile(file) {
-  const statusEl = document.getElementById("song-status");
-  statusEl.textContent = "Loading…";
-  try {
-    const arrayBuffer = await file.arrayBuffer();
-    const ac = signalGenerator.audioContext;
-    if (ac.state === "suspended") await ac.resume();
-    songBuffer = await ac.decodeAudioData(arrayBuffer);
-    const dur = formatTime(songBuffer.duration * 1000);
-    statusEl.textContent = `✓ ${file.name}  (${dur})`;
-    // If this is the RFE Come Together show, snap the total time to the song length
-    if (currentShowtapeId === "come-together-rfe") {
-      currentPlaybackState.totalTime = Math.round(songBuffer.duration * 1000);
-      updateTimeDisplay();
-    }
-  } catch (err) {
-    statusEl.textContent = `✗ Failed to decode: ${err.message}`;
-  }
-}
 
 /**
  * Start playing the loaded WAV, beginning at `offsetMs` into the song,
@@ -901,71 +966,6 @@ function stopSongPlayback() {
     songGainNode.disconnect();
     songGainNode = null;
   }
-}
-
-/**
- * Play a manual signal from the signal generator
- */
-function playManualSignal(channel) {
-  const selectId = `ch${channel}-select`;
-  const select = document.getElementById(selectId);
-  const commandType = select.value;
-
-  if (commandType === "none") {
-    updateSignalMonitor("Select a command first");
-    return;
-  }
-
-  // Generate different byte patterns for different command types
-  let dataBytes;
-  const speed =
-    parseInt(document.getElementById("signal-duration").value) & 0xff;
-
-  switch (commandType) {
-    case "move":
-      dataBytes = new Uint8Array([0x00, (channel << 6) | 0x20 | (speed >> 3)]);
-      break;
-    case "rotate":
-      dataBytes = new Uint8Array([0x00, (channel << 6) | 0x10 | (speed >> 3)]);
-      break;
-    case "pulse":
-      dataBytes = new Uint8Array([0xaa, 0x55, (channel << 6) | (speed >> 3)]);
-      break;
-    case "sweep":
-      dataBytes = new Uint8Array([0x55, 0xaa, (channel << 6) | (speed >> 3)]);
-      break;
-    default:
-      dataBytes = new Uint8Array([0x00, 0x00]);
-  }
-
-  signalGenerator.playBMCSignal(dataBytes, currentPlaybackState.volume);
-
-  const byteStr = Array.from(dataBytes)
-    .map((b) => "0x" + b.toString(16).toUpperCase())
-    .join(" ");
-
-  // Update character-specific monitor
-  updateCharacterMonitor(channel, `${commandType.toUpperCase()}: ${byteStr}`);
-
-  updateSignalMonitor(`Manual Ch${channel} [${commandType}]: ${byteStr}`);
-}
-
-/**
- * Update the signal monitor display
- */
-function updateSignalMonitor(message) {
-  const monitor = document.getElementById("signal-monitor");
-  const timestamp = new Date().toLocaleTimeString();
-
-  const logEntry = document.createElement("p");
-  logEntry.textContent = `[${timestamp}] ${message}`;
-
-  // Keep only last 5 messages
-  while (monitor.children.length >= 5) {
-    monitor.removeChild(monitor.firstChild);
-  }
-
-  monitor.appendChild(logEntry);
 }
 
 /**
@@ -1056,9 +1056,10 @@ function saveCustomShowtape(tape) {
   stored.push(serializable);
   try {
     localStorage.setItem(CUSTOM_SHOWS_KEY, JSON.stringify(stored));
-  } catch (e) {
-    // Quota exceeded — tape lives in-memory for this session only
-    console.warn("localStorage quota exceeded:", e.message);
+  } catch (err) {
+    if (typeof statusEl !== 'undefined') {
+      statusEl.textContent = `Error: ${err.message || err}`;
+    }
   }
   SHOWTAPES[tape.id] = tape;
   updateShowtapeList();
@@ -1231,10 +1232,6 @@ function exportShowJSON(id) {
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 15000);
-
-  updateSignalMonitor(
-    `Exported show: "${tape.title}" (${validCues.length} cues across ${charCount} characters)`,
-  );
 }
 
 /**
@@ -1367,7 +1364,6 @@ function importShowJSON(file) {
 
       statusEl.style.color = "#0f8";
       statusEl.textContent = msg;
-      updateSignalMonitor(msg);
 
       // Reset file input
       document.getElementById("import-show-input").value = "";
@@ -1400,14 +1396,7 @@ function selectAndPlayCustomShow(id) {
     currentBand = tape.band;
     const bandSelect = document.getElementById("band-select");
     if (bandSelect) bandSelect.value = currentBand;
-    document.getElementById("band-title").textContent =
-      `${BAND_CONFIG[currentBand].title} - Signal Monitors`;
-    document.getElementById("munch-band").style.display =
-      currentBand === "munch" ? "grid" : "none";
-    document.getElementById("rock-band").style.display =
-      currentBand === "rock" ? "grid" : "none";
-    clearAllMonitors();
-    setupCurrentBandSlots();
+    signalGenerator.clearAllCharacterStates();
   }
 
   const select = document.getElementById("showtape-select");
@@ -1675,13 +1664,62 @@ function generateEnhancedSequences(beatTimes, band, binnedOnsets) {
 
 /**
  * Full custom show build pipeline:
- *   1. Decode audio via Web Audio API
- *   2. Run beat detection + BPM estimation
- *   3. Generate choreography sequences
- *   4. Persist to localStorage
- *   5. Auto-select the tape in the main player and cache the decoded buffer
- *      so playback syncs the song immediately (no re-upload needed this session)
+ *   1. Decode audio with Web Audio API (browser-native, no signal generation)
+ *   2. Mix to mono + decimate to 11 025 Hz (done in show-builder.js)
+ *   3. Pass samples to Python via Pyodide — SAM analyses beats, frequency
+ *      bands, and builds choreography (see SCME/SAM/show_bridge.py)
+ *   4. Convert returned v3.0 JSON to flat sequences + persist to localStorage
+ *   5. Auto-select the tape and cache the decoded buffer for sync playback
  */
+
+/**
+ * Convert a parsed .cybershow.json v3.0 object into the flat sequences array
+ * expected by the showtape player (same logic as the v3.0 branch of importShowJSON).
+ *
+ * @param {object} obj  Parsed JSON from Python bridge
+ * @returns {{ sequences: Array, skipped: number }}
+ */
+function showObjToSequences(obj) {
+  const FPS = obj.fps || 50;
+  const MS_PER_FRAME = 1000.0 / FPS;
+  const sequences = [];
+  let skipped = 0;
+
+  for (const [charName, charData] of Object.entries(obj.characters || {})) {
+    const charEntry = CHARACTER_MOVEMENTS[charName];
+    if (!charEntry) {
+      skipped += (charData.signals || []).length;
+      continue;
+    }
+
+    for (const sig of charData.signals || []) {
+      if (
+        typeof sig.frame !== "number" ||
+        !sig.movement ||
+        typeof sig.state !== "boolean"
+      ) {
+        skipped++;
+        continue;
+      }
+      if (!charEntry.movements[sig.movement]) {
+        skipped++;
+        continue;
+      }
+      sequences.push({
+        time: Math.max(0, Math.round(sig.frame * MS_PER_FRAME)),
+        character: charName,
+        movement: sig.movement,
+        state: sig.state,
+        note: sig.note || "",
+        executed: false,
+      });
+    }
+  }
+
+  sequences.sort((a, b) => a.time - b.time);
+  return { sequences, skipped };
+}
+
 async function buildCustomShowtape(file, title, band) {
   const statusEl = document.getElementById("generate-status");
   const btn = document.getElementById("generate-show-btn");
@@ -1689,42 +1727,56 @@ async function buildCustomShowtape(file, title, band) {
   statusEl.style.color = "";
   statusEl.textContent = "Decoding audio…";
 
+  pyModal.open("Analysing audio…");
+
   try {
+    // 1. Decode the file with the Web Audio API (read-only — no generation)
     const arrayBuffer = await file.arrayBuffer();
     const ac = signalGenerator.audioContext;
     if (ac.state === "suspended") await ac.resume();
     const audioBuffer = await ac.decodeAudioData(arrayBuffer);
     const durationMs = Math.round(audioBuffer.duration * 1000);
 
-    statusEl.textContent = "Detecting beats…";
-    await new Promise((r) => setTimeout(r, 20)); // yield to browser
-
-    const beatTimes = analyzeBeats(audioBuffer);
-    if (beatTimes.length < 4) {
+    // 2. Hand off to Python (show-builder.js → SCME/SAM/show_bridge.py)
+    if (typeof window.buildShowWithPython !== "function") {
       throw new Error(
-        "Too few beats detected — try a more rhythmic track or check the file has audio content.",
+        "show-builder.js not loaded — Python analysis unavailable.",
+      );
+    }
+    const showObj = await window.buildShowWithPython(
+      audioBuffer,
+      band,
+      title,
+      durationMs,
+      (msg) => {
+        statusEl.textContent = msg;
+        pyModal.update(msg);
+      },
+    );
+
+    // 3. Convert v3.0 show JSON → flat sequences for the showtape player
+    const { sequences, skipped } = showObjToSequences(showObj);
+    if (sequences.length === 0) {
+      throw new Error(
+        "Python generated no valid cues — check the audio file has content.",
       );
     }
 
-    const bpm = estimateBPM(beatTimes);
-
-    statusEl.textContent = `Found ${beatTimes.length} beats (~${bpm} BPM). Analyzing frequency bins…`;
-    await new Promise((r) => setTimeout(r, 20));
-
-    const binnedOnsets = analyzeFrequencyBins(audioBuffer);
-
-    statusEl.textContent = `Analyzed Treble, Mid, and Bass bins. Building choreography…`;
-    await new Promise((r) => setTimeout(r, 20));
-
-    const sequences = generateEnhancedSequences(beatTimes, band, binnedOnsets);
+    const bpm = showObj.bpm || 120;
     const id = `custom-${Date.now()}`;
     const bandLabel =
-      band === "rock" ? "Rock Afire Explosion" : "Munch's Make Believe Band";
+      band === "rock"
+        ? "Rock Afire Explosion"
+        : "Munch\u2019s Make Believe Band";
+    const skipNote = skipped > 0 ? ` (${skipped} unknown cues skipped)` : "";
 
     const tape = {
       id,
       title,
-      description: `Custom show generated from \u201c${file.name}\u201d. Detected ~${bpm} BPM, ${beatTimes.length} beats, ${binnedOnsets.treble.length} vocal cues. ${sequences.length} choreography cues for ${bandLabel}.`,
+      description:
+        showObj.description ||
+        `Custom show from \u201c${file.name}\u201d \u2014 ~${bpm} BPM, ` +
+          `${sequences.length} cues for ${bandLabel}.`,
       duration: durationMs,
       bitrate: 600,
       band,
@@ -1733,14 +1785,13 @@ async function buildCustomShowtape(file, title, band) {
       sequences,
     };
 
+    // 4. Save to localStorage + update UI
     saveCustomShowtape(tape);
 
-    // Cache decoded audio so the player syncs it immediately this session
+    // Cache decoded audio so the player syncs immediately this session
     songBuffer = audioBuffer;
-    document.getElementById("song-status").textContent =
-      `\u2713 ${file.name}  (${formatTime(durationMs)})`;
 
-    // Auto-select the new tape in the player
+    // Auto-select the new tape in the player dropdown
     currentShowtapeId = id;
     const select = document.getElementById("showtape-select");
     select.value = id;
@@ -1749,11 +1800,15 @@ async function buildCustomShowtape(file, title, band) {
     updateTimeDisplay();
 
     statusEl.style.color = "#0f8";
-    statusEl.textContent = `\u2713 \u201c${title}\u201d saved! ${sequences.length} cues \u00b7 ${formatTime(durationMs)} \u00b7 ~${bpm} BPM`;
+    statusEl.textContent =
+      `\u2713 \u201c${title}\u201d saved! ` +
+      `${sequences.length} cues \u00b7 ${formatTime(durationMs)} \u00b7 ~${bpm} BPM${skipNote}`;
   } catch (err) {
     statusEl.style.color = "#f44";
     statusEl.textContent = `\u2717 ${err.message}`;
+    console.error("[buildCustomShowtape]", err);
   } finally {
+    pyModal.close();
     btn.disabled = false;
   }
 }
@@ -2137,54 +2192,53 @@ async function exportSignalOnly() {
   }
 }
 
-// ── Button 2: 4-channel WAV (Music L, Music R, TD, BD) ────────────────────
+// ── Button 2: 4-channel WAV (Music L, Music R, TD BMC, BD BMC) ────────────
+// Signal generation runs entirely in Python via SCME/SGM/export_bridge.py.
 async function export4chWAV() {
   const g = _exportGuard("export-4ch-btn");
   if (!g) return;
   const { tape, btn, statusEl } = g;
-  try {
-    signalGenerator.isExporting = true;
-    const {
-      outL,
-      outR,
-      outOffset,
-      PILOT_SAMPLES: pilotSamples,
-      SAMPLE_RATE,
-      tape: t,
-    } = await _renderBMCFrames(tape, statusEl);
-    statusEl.textContent = "Encoding 4-ch broadcast WAV…";
-    await new Promise((r) => setTimeout(r, 0));
 
-    const { musicL, musicR } = _extractMusicChannels(
-      outOffset,
-      pilotSamples,
-      SAMPLE_RATE,
+  pyModal.open("Exporting 4-ch WAV\u2026");
+
+  try {
+    // Normalise sequence entries to {time_ms, character, movement, state}
+    const sequences = (tape.sequences || []).map((s) => ({
+      time_ms: s.time_ms !== undefined ? s.time_ms : s.time,
+      character: s.character,
+      movement: s.movement,
+      state: s.state,
+    }));
+
+    const blob = await window.export4chWAVWithPython(
+      sequences,
+      tape.duration,
+      tape.title,
+      (msg) => {
+        statusEl.style.color = "";
+        statusEl.textContent = msg;
+        pyModal.update(msg);
+      },
     );
-    // exportBroadcastWav: Ch0=MusicL, Ch1=MusicR, Ch2=TD, Ch3=BD (4-channel listening format)
-    const blob = signalGenerator.exportBroadcastWav(
-      outL.subarray(0, outOffset),
-      outR.subarray(0, outOffset),
-      musicL,
-      musicR,
-    );
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${t.title.replace(/[^a-z0-9_\-]/gi, "_")}_4ch.wav`;
+    a.download = `${tape.title.replace(/[^a-z0-9_\-]/gi, "_")}_4ch.wav`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 15000);
 
-    const musicNote = songBuffer ? " + music" : " (data channels only)";
+    const musicNote = songBuffer ? " + music" : " (data only)";
     statusEl.style.color = "#0f8";
-    statusEl.textContent = `✓ Downloaded: ${t.title} — 4-ch broadcast WAV${musicNote}`;
+    statusEl.textContent = `✓ Downloaded: ${tape.title} — 4-ch WAV${musicNote}`;
   } catch (err) {
     statusEl.style.color = "#f44";
     statusEl.textContent = `✗ ${err.message}`;
     console.error("4-ch WAV export error:", err);
   } finally {
-    signalGenerator.isExporting = false;
+    pyModal.close();
     btn.disabled = false;
   }
 }
@@ -2298,836 +2352,6 @@ async function export2chSPTE() {
   }
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// Signal Tester — Analog Signal Forensic Engine v3.0
-// Handles archival recordings with tape hiss, DC offset, wow/flutter, and
-// harmonic distortion using adaptive edge detection + clock recovery.
-//
-// Accepts:  2-channel signal-only WAV  (L = TD, R = BD)
-//           4-channel broadcast WAV    (ch0 = Music L, ch1 = Music R,
-//                                       ch2 = TD, ch3 = BD)
-// ═════════════════════════════════════════════════════════════════════════════
-
-// ─── Phase 1: Signal Conditioning ───────────────────────────────────────────
-/**
- * Clean a raw audio channel for BMC extraction.
- *   1. DC offset removal   — centres the waveform on 0.0
- *   2. Band-pass filter    — 2nd-order Butterworth HP @ 1500 Hz cascaded with
- *                            2nd-order Butterworth LP @ 12 000 Hz (biquad IIR)
- *                            Kills motor hum below 1.5 kHz and hiss above 12 kHz.
- *   3. AGC                 — normalises peak amplitude to −3 dBFS (≈ 0.707)
- *   4. Schmitt trigger     — hysteresis squaring: > +0.3 → +1, < −0.3 → −1,
- *                            in between → hold previous state (eliminates chatter)
- *
- * Returns an Int8Array of +1 / 0 / −1 values.
- */
-function stPreprocessSignal(channel, SR) {
-  const len = channel.length;
-  const buf = new Float32Array(len);
-
-  // 1. DC offset removal
-  let dcSum = 0;
-  for (let i = 0; i < len; i++) dcSum += channel[i];
-  const dc = dcSum / len;
-  for (let i = 0; i < len; i++) buf[i] = channel[i] - dc;
-
-  // 2a. High-pass biquad — Butterworth @ 1500 Hz (kills motor hum)
-  {
-    const w0 = (2 * Math.PI * 1500) / SR;
-    const cosW = Math.cos(w0);
-    const alpha = Math.sin(w0) / (2 * Math.SQRT2); // Q = √2
-    const a0 = 1 + alpha;
-    const B0 = (1 + cosW) / 2 / a0;
-    const B1 = -(1 + cosW) / a0;
-    const B2 = B0;
-    const A1 = (-2 * cosW) / a0;
-    const A2 = (1 - alpha) / a0;
-    let x1 = 0,
-      x2 = 0,
-      y1 = 0,
-      y2 = 0;
-    for (let i = 0; i < len; i++) {
-      const x0 = buf[i];
-      const y0 = B0 * x0 + B1 * x1 + B2 * x2 - A1 * y1 - A2 * y2;
-      x2 = x1;
-      x1 = x0;
-      y2 = y1;
-      y1 = y0;
-      buf[i] = y0;
-    }
-  }
-
-  // 2b. Low-pass biquad — Butterworth @ 12 000 Hz (kills tape hiss)
-  {
-    const w0 = (2 * Math.PI * 12000) / SR;
-    const cosW = Math.cos(w0);
-    const alpha = Math.sin(w0) / (2 * Math.SQRT2);
-    const a0 = 1 + alpha;
-    const B0 = (1 - cosW) / 2 / a0;
-    const B1 = (1 - cosW) / a0;
-    const B2 = B0;
-    const A1 = (-2 * cosW) / a0;
-    const A2 = (1 - alpha) / a0;
-    let x1 = 0,
-      x2 = 0,
-      y1 = 0,
-      y2 = 0;
-    for (let i = 0; i < len; i++) {
-      const x0 = buf[i];
-      const y0 = B0 * x0 + B1 * x1 + B2 * x2 - A1 * y1 - A2 * y2;
-      x2 = x1;
-      x1 = x0;
-      y2 = y1;
-      y1 = y0;
-      buf[i] = y0;
-    }
-  }
-
-  // 3. AGC — peak normalise to −3 dBFS (0.707)
-  let peak = 0;
-  for (let i = 0; i < len; i++) {
-    const a = Math.abs(buf[i]);
-    if (a > peak) peak = a;
-  }
-  if (peak > 0.001) {
-    const gain = 0.707 / peak;
-    for (let i = 0; i < len; i++) buf[i] *= gain;
-  }
-
-  // 4. Schmitt trigger — hysteresis squaring
-  const HI = 0.3,
-    LO = -0.3;
-  const squared = new Int8Array(len);
-  let state = 0;
-  for (let i = 0; i < len; i++) {
-    if (buf[i] > HI) state = 1;
-    else if (buf[i] < LO) state = -1;
-    // else: inside dead-band — hold previous state (hysteresis)
-    squared[i] = state;
-  }
-  return squared;
-}
-
-// ─── Phase 2: Adaptive Clock Recovery ────────────────────────────────────────
-/**
- * Histogram-based clock bootstrap.
- * Scan up to the first SAMPLE_EDGES transitions, bucket their intervals into
- * bins of width ±15% around each candidate, and return the most-common value.
- * This gives a much better starting clock estimate for real archival tapes that
- * may run slightly faster or slower than nominal 4800 baud.
- */
-function stBootstrapClock(edges, nominalSPB) {
-  const SAMPLE_EDGES = Math.min(500, edges.length - 1);
-  if (SAMPLE_EDGES < 4) return nominalSPB;
-
-  // Collect intervals
-  const intervals = [];
-  for (let e = 1; e <= SAMPLE_EDGES; e++) {
-    const iv = edges[e] - edges[e - 1];
-    // Only consider intervals in the plausible BMC range (0.3× to 2× nominal)
-    if (iv >= nominalSPB * 0.3 && iv <= nominalSPB * 2.0) intervals.push(iv);
-  }
-  if (intervals.length < 4) return nominalSPB;
-
-  // Find the mode with 15%-wide bins centred on each distinct interval
-  let bestCount = 0,
-    bestCenter = nominalSPB;
-  for (let k = 0; k < intervals.length; k++) {
-    const c = intervals[k];
-    const lo = c * 0.85,
-      hi = c * 1.15;
-    let count = 0;
-    for (let j = 0; j < intervals.length; j++) {
-      if (intervals[j] >= lo && intervals[j] <= hi) count++;
-    }
-    if (count > bestCount) {
-      bestCount = count;
-      bestCenter = c;
-    }
-  }
-  // bestCenter is the most common raw interval; it could be a half-bit or full-bit.
-  // If it is near nominalSPB / 2, double it to get full-bit width.
-  if (bestCenter < nominalSPB * 0.65) bestCenter *= 2;
-  return bestCenter;
-}
-
-/**
- * Extract BMC bits from a Schmitt-squared signal using adaptive edge timing.
- *
- * Instead of sampling at fixed 10-sample intervals, we:
- *   • Find every polarity transition (edge).
- *   • Bootstrap the initial clock estimate via histogram (real tapes drift).
- *   • Measure the interval between successive edges.
- *   • Classify intervals relative to a live clock estimate:
- *       half-bit  (25–72%  of clockEst)  → waits for its pair → logical 1
- *       full-bit  (72–160% of clockEst)  → logical 0
- *     (Wider windows than before for archival tolerance.)
- *   • Update clockEst from a rolling median of the last 64 pulse widths.
- *
- * Returns Uint8Array of raw bits.
- */
-function stExtractBitsAdaptive(squared, SR) {
-  const NOMINAL_SPB = SR / 4800; // 10 samples @ 48 kHz / 4800 bps
-  const HISTORY_MAX = 64;
-  // Wider acceptance windows for degraded/drifting archival recordings
-  const HALF_LO = 0.25,
-    HALF_HI = 0.72;
-  const FULL_LO = 0.72,
-    FULL_HI = 1.6;
-
-  // Collect all polarity-transition sample indices
-  const edges = [];
-  let prev = squared[0];
-  for (let i = 1; i < squared.length; i++) {
-    if (squared[i] !== 0 && squared[i] !== prev) {
-      if (prev !== 0) edges.push(i);
-      prev = squared[i];
-    }
-  }
-  if (edges.length < 4) return new Uint8Array(0);
-
-  // Histogram-based clock bootstrap — critical for archival accuracy
-  let clockEst = stBootstrapClock(edges, NOMINAL_SPB);
-
-  const bits = [];
-  const history = [];
-  let halfPending = false;
-
-  for (let e = 1; e < edges.length; e++) {
-    const interval = edges[e] - edges[e - 1];
-    const ratio = interval / clockEst;
-
-    const isHalf = ratio >= HALF_LO && ratio <= HALF_HI;
-    const isFull = ratio >= FULL_LO && ratio <= FULL_HI;
-
-    if (!isHalf && !isFull) {
-      halfPending = false; // dropout or splice — discard pending half, skip
-      continue;
-    }
-
-    // Update adaptive clock with rolling median for flutter rejection
-    history.push(isFull ? interval : interval * 2);
-    if (history.length > HISTORY_MAX) history.shift();
-    // Use median instead of mean — more robust against outlier intervals
-    const sorted = history.slice().sort((a, b) => a - b);
-    clockEst = sorted[Math.floor(sorted.length / 2)];
-
-    if (isFull) {
-      halfPending = false;
-      bits.push(0);
-    } else {
-      if (halfPending) {
-        bits.push(1);
-        halfPending = false;
-      } else {
-        halfPending = true;
-      }
-    }
-  }
-
-  return new Uint8Array(bits);
-}
-
-// ─── Phase 3 + 4: Sync Hunter, Frame Chunker, Validation & Re-synthesis ─────
-/**
- * Scan a raw bit array for 0xFF sync bytes and chunk into 12-byte RAE frames.
- *
- * Design notes for archival robustness:
- *   • Hunts for the FIRST frame that has at least one non-0xFF data byte
- *     (skips the simulator's pilot tone, absent on real tapes — both cases work).
- *   • Accepts any 12-byte block that begins with 0xFF.
- *   • After processing a frame, simply advances 96 bits and checks the next
- *     position — if it isn't 0xFF, it hunts forward for the next sync byte.
- *   • REMOVED: the old look-ahead "next frame must also be 0xFF" check.
- *     That check was the main killer on real archival recordings because
- *     even 1-2 bits of clock drift from Phase 2 causes the boundary to fall
- *     one bit short or long of the true sync, rejecting every frame.
- *   • Fault-tolerant sync: also accepts a byte with 7/8 bits set as a sync
- *     byte (1-bit error tolerance), for recordings where a single bit was
- *     dropped or flipped in the sync byte due to tape drop-out.
- *
- * Returns { frames: Uint8Array(12)[], goodFrames, resyncs }
- */
-function stResyncAndBuildFrames(rawBits) {
-  const BITS_PER_FRAME = 96; // 12 bytes × 8 bits
-  const frames = [];
-  let goodFrames = 0,
-    resyncs = 0;
-
-  // Read one byte (LSB-first) from rawBits at position pos; returns −1 if OOB
-  function readByte(pos) {
-    if (pos + 8 > rawBits.length) return -1;
-    let v = 0;
-    for (let b = 0; b < 8; b++) v |= (rawBits[pos + b] & 1) << b;
-    return v;
-  }
-
-  // Count set bits in a byte
-  function popcount(v) {
-    let c = 0;
-    for (let b = 0; b < 8; b++) if ((v >> b) & 1) c++;
-    return c;
-  }
-
-  // Sync byte: 0xFF exactly OR 7/8 bits set (1-bit fault tolerance)
-  function isSync(pos) {
-    const v = readByte(pos);
-    return v >= 0 && popcount(v) >= 7;
-  }
-
-  // Find the next valid sync position (7/8 bits set) starting at `from`
-  function findNextSync(from) {
-    for (let s = from; s <= rawBits.length - 8; s++) {
-      if (isSync(s)) return s;
-    }
-    return -1;
-  }
-
-  // Locate first sync
-  let i = findNextSync(0);
-  if (i < 0) return { frames: [], goodFrames: 0, resyncs: 0 };
-
-  // Skip past any all-0xFF pilot region (simulator export) or landing directly
-  // on show data (real tapes that have no pilot tone).
-  while (i >= 0) {
-    let hasData = false;
-    for (let bIdx = 1; bIdx < 12; bIdx++) {
-      if (readByte(i + bIdx * 8) !== 0xff) {
-        hasData = true;
-        break;
-      }
-    }
-    if (hasData) break;
-    i = findNextSync(i + 8);
-  }
-  if (i < 0) {
-    // All data looks like pilot — treat position 0 as start (edge case)
-    i = findNextSync(0);
-    if (i < 0) return { frames: [], goodFrames: 0, resyncs: 0 };
-  }
-
-  // ── Main frame loop ──────────────────────────────────────────────────────
-  while (i + BITS_PER_FRAME <= rawBits.length) {
-    if (!isSync(i)) {
-      // Out of sync — hunt forward for next sync byte
-      const ns = findNextSync(i + 1);
-      if (ns < 0) break;
-      i = ns;
-      resyncs++;
-      continue;
-    }
-
-    // Read 12-byte frame
-    const frame = new Uint8Array(12);
-    let valid = true;
-    for (let byteIdx = 0; byteIdx < 12; byteIdx++) {
-      const b = readByte(i + byteIdx * 8);
-      if (b < 0) {
-        valid = false;
-        break;
-      }
-      frame[byteIdx] = b;
-    }
-    if (!valid) break;
-
-    frames.push(frame);
-    goodFrames++;
-
-    // Advance to next expected frame position.
-    // If it doesn't start with a sync byte, the outer loop will resync.
-    i += BITS_PER_FRAME;
-  }
-
-  return { frames, goodFrames, resyncs };
-}
-
-// ─── stDirectDecode: clean fixed-clock BMC decoder for simulator-exported files ─
-/**
- * For files created by Cyberstar Online / this simulator: the signal is a
- * perfect square-wave at exactly 4800 bps.  No filtering or adaptive clock
- * needed — just threshold + fixed-SPB edge classification.
- * Returns a Uint8Array of raw bit values (0 / 1).
- */
-function stDirectDecode(channel, SR) {
-  const SPB = 10; // fixed: 44.1kHz SPTE standard is always 10 SPB (44100 / 4410 bps)
-  const HALF = SPB * 0.5;
-  const N = channel.length;
-  const bits = [];
-
-  // Collect zero-crossing edges
-  const edges = [];
-  for (let i = 1; i < N; i++) {
-    if (channel[i] >= 0 !== channel[i - 1] >= 0) edges.push(i);
-  }
-  if (edges.length < 2) return new Uint8Array(bits);
-
-  // BMC decode: half-period gap between consecutive edges → bit 1
-  //             full-period gap → bit 0.
-  let e = 0;
-  while (e < edges.length) {
-    const gap = e + 1 < edges.length ? edges[e + 1] - edges[e] : SPB;
-    if (gap < HALF * 1.45) {
-      // Two transitions within one bit period → '1'
-      bits.push(1);
-      e += 2; // consume both the mid-bit and the boundary edge
-    } else {
-      // One transition at bit boundary → '0'
-      bits.push(0);
-      e += 1;
-    }
-  }
-  return new Uint8Array(bits);
-}
-
-/**
- * Simple frame assembler for clean simulator files.  Looks for exact 0xFF
- * sync bytes; no fault tolerance needed.
- * Returns { frames: Uint8Array[], goodFrames, resyncs }.
- */
-function stBuildFramesDirect(rawBits) {
-  const frames = [];
-  const FRAME_LEN = 96;
-  let resyncs = 0;
-
-  function readByte(pos) {
-    let b = 0;
-    for (let k = 0; k < 8; k++) {
-      if (pos + k < rawBits.length) b = (b << 1) | rawBits[pos + k];
-    }
-    return b;
-  }
-
-  // Find first 0xFF sync
-  let i = 0;
-  while (i < rawBits.length - FRAME_LEN) {
-    if (readByte(i) === 0xff) break;
-    i++;
-  }
-
-  while (i + FRAME_LEN <= rawBits.length) {
-    if (readByte(i) !== 0xff) {
-      // Lost sync — scan ahead
-      resyncs++;
-      let found = false;
-      for (let s = i + 1; s < rawBits.length - FRAME_LEN; s++) {
-        if (readByte(s) === 0xff) {
-          i = s;
-          found = true;
-          break;
-        }
-      }
-      if (!found) break;
-    }
-    const frame = new Uint8Array(12);
-    for (let b = 0; b < 12; b++) frame[b] = readByte(i + b * 8);
-    frames.push(frame);
-    i += FRAME_LEN;
-  }
-
-  return { frames, goodFrames: frames.length, resyncs };
-}
-
-// ─── stLoadFile: full forensic pipeline orchestrator ─────────────────────────
-/**
- * Load a signal or broadcast WAV through the 4-phase forensic engine:
- *   Phase 1 — Signal Conditioning  (DC removal, band-pass, AGC, Schmitt)
- *   Phase 2 — Adaptive Clock Recovery (histogram bootstrap + rolling median)
- *   Phase 3 — Fault-Tolerant Sync Hunt + Frame Assembly (7/8-bit sync match,
- *              no inter-frame look-ahead — robust to real archival recordings)
- *   Phase 4 — Re-synthesis (frames feed the live BMC generator on playback)
- *
- * Archival robustness: tolerates pilot-less tapes, speed drift, drop-outs,
- * and 1-bit errors in sync bytes. Falls back to whichever track decoded best.
- */
-async function stLoadFile(file) {
-  const statusEl = document.getElementById("st-status");
-  const nameEl = document.getElementById("st-file-name");
-  const badge = document.getElementById("st-format-badge");
-  const controls = document.getElementById("st-controls");
-  const playBtn = document.getElementById("st-play-btn");
-  const stopBtn = document.getElementById("st-stop-btn");
-
-  stStop();
-  stState.frames = [];
-  stState.musicBuffer = null;
-  stState.is4ch = false;
-
-  nameEl.textContent = file.name;
-  badge.style.display = "none";
-  controls.style.display = "none";
-  if (playBtn) playBtn.disabled = true;
-  if (stopBtn) stopBtn.disabled = true;
-  statusEl.style.color = "";
-  statusEl.textContent = "Reading file…";
-
-  try {
-    const arrayBuffer = await file.arrayBuffer();
-    const ac = signalGenerator.audioContext;
-    if (ac.state === "suspended") await ac.resume();
-
-    const audioBuffer = await ac.decodeAudioData(arrayBuffer);
-    const numCh = audioBuffer.numberOfChannels;
-    const SR = audioBuffer.sampleRate;
-
-    const is4ch = numCh >= 4;
-    stState.is4ch = is4ch;
-
-    // Select signal channels based on file format
-    const tdChan = audioBuffer.getChannelData(is4ch ? 2 : 0);
-    const bdChan = audioBuffer.getChannelData(is4ch ? 3 : numCh > 1 ? 1 : 0);
-
-    // ── Determine decode path from source selector ──────────────────────────
-    const sourceMode = (() => {
-      const r = document.querySelector('input[name="st-source"]:checked');
-      return r ? r.value : "online";
-    })();
-    const isOnline = sourceMode === "online";
-
-    let tdRawBits, bdRawBits, tdResult, bdResult;
-
-    if (isOnline) {
-      // ── DIRECT PATH: Cyberstar Online / simulator-exported files ───────────
-      // Clean square-wave at exact 4800 bps — fixed clock, no filtering.
-      statusEl.textContent = `Decoding Cyberstar Online file  [${numCh}ch @ ${SR} Hz]…`;
-      await new Promise((r) => setTimeout(r, 0));
-
-      tdRawBits = stDirectDecode(tdChan, SR);
-      bdRawBits = stDirectDecode(bdChan, SR);
-
-      if (tdRawBits.length < 96 && bdRawBits.length < 96) {
-        throw new Error(
-          `Direct decode failed — TD: ${tdRawBits.length} bits, BD: ${bdRawBits.length} bits. ` +
-            "If this is an outside or archival recording, switch the source selector.",
-        );
-      }
-
-      statusEl.textContent = "Building frames…";
-      await new Promise((r) => setTimeout(r, 0));
-
-      tdResult = stBuildFramesDirect(tdRawBits);
-      bdResult = stBuildFramesDirect(bdRawBits);
-    } else {
-      // ── FORENSIC PATH: outside / archival recordings ───────────────────────
-      // Phase 1: Signal Conditioning
-      statusEl.textContent = `Phase 1 of 4 — Signal conditioning  [${numCh}ch @ ${SR} Hz]…`;
-      await new Promise((r) => setTimeout(r, 0));
-
-      const tdSquared = stPreprocessSignal(tdChan, SR);
-      const bdSquared = stPreprocessSignal(bdChan, SR);
-
-      // Phase 2: Adaptive Clock Recovery
-      statusEl.textContent =
-        "Phase 2 of 4 — Adaptive clock recovery (wow/flutter)…";
-      await new Promise((r) => setTimeout(r, 0));
-
-      tdRawBits = stExtractBitsAdaptive(tdSquared, SR);
-      bdRawBits = stExtractBitsAdaptive(bdSquared, SR);
-
-      statusEl.textContent = `Phase 2 complete — TD: ${tdRawBits.length} bits, BD: ${bdRawBits.length} bits`;
-      await new Promise((r) => setTimeout(r, 0));
-
-      if (tdRawBits.length < 96 && bdRawBits.length < 96) {
-        throw new Error(
-          `Bit extraction failed — TD: ${tdRawBits.length} bits, BD: ${bdRawBits.length} bits. ` +
-            "Is the file a valid BMC/RAE signal recording? " +
-            "For 4-channel broadcasts the signal must be on channels 3 & 4.",
-        );
-      }
-
-      // Phase 3: Sync Hunt + Frame Assembly
-      statusEl.textContent =
-        "Phase 3 of 4 — Sync hunting & fault-tolerant frame assembly…";
-      await new Promise((r) => setTimeout(r, 0));
-
-      tdResult = stResyncAndBuildFrames(tdRawBits);
-      bdResult = stResyncAndBuildFrames(bdRawBits);
-    }
-
-    if (tdResult.goodFrames === 0 && bdResult.goodFrames === 0) {
-      const hint = isOnline
-        ? " If this is an archival or outside recording, switch the source selector."
-        : " The signal may be a different encoding or the channels may be swapped.";
-      throw new Error(
-        `No valid RAE frames found — diagnostic: ` +
-          `TD ${tdRawBits.length} bits → ${tdResult.goodFrames} frames, ` +
-          `BD ${bdRawBits.length} bits → ${bdResult.goodFrames} frames.` +
-          hint,
-      );
-    }
-
-    // ── Phase 4: Re-synthesis — zip TD + BD frames ─────────────────────────
-    // Use whichever track decoded more frames as the authoritative length.
-    const totalFrames = Math.max(
-      tdResult.frames.length,
-      bdResult.frames.length,
-    );
-    const emptyFrame = new Uint8Array(12);
-    emptyFrame[0] = 0xff; // valid sync byte so playback engine doesn't choke
-
-    const frames = [];
-    for (let f = 0; f < totalFrames; f++) {
-      frames.push({
-        td: tdResult.frames[f] || emptyFrame,
-        bd: bdResult.frames[f] || emptyFrame,
-      });
-    }
-
-    stState.frames = frames;
-    stState.totalFrames = totalFrames;
-    stState.totalDurationMs = Math.round((totalFrames / 50) * 1000);
-
-    // Cache music channels for 4-ch broadcast files
-    if (is4ch && numCh >= 2) {
-      const musicBuf = ac.createBuffer(2, audioBuffer.length, SR);
-      musicBuf.copyToChannel(audioBuffer.getChannelData(0), 0);
-      musicBuf.copyToChannel(audioBuffer.getChannelData(1), 1);
-      stState.musicBuffer = musicBuf;
-    }
-
-    // ── Report ──────────────────────────────────────────────────────────────
-    const fmtLabel = is4ch
-      ? "4-CHANNEL BROADCAST  ·  Music L / Music R / TD / BD"
-      : numCh >= 2
-        ? "SIGNAL ONLY  ·  Stereo  ·  TD left / BD right"
-        : "SIGNAL ONLY  ·  Mono  ·  TD only";
-
-    const totalResyncs = tdResult.resyncs + bdResult.resyncs;
-    const resyncNote =
-      totalResyncs > 0
-        ? `  ·  ⚠ ${totalResyncs} resyncs corrected`
-        : "  ·  ✓ Clean decode";
-
-    badge.textContent = fmtLabel;
-    badge.className = `st-format-badge ${is4ch ? "badge-4ch" : "badge-2ch"}`;
-    badge.style.display = "block";
-    controls.style.display = "block";
-    if (playBtn) playBtn.disabled = false;
-    if (stopBtn) stopBtn.disabled = false;
-
-    stUpdateProgress(0);
-    statusEl.style.color = "#0f8";
-    statusEl.textContent = `✓ ${totalFrames} frames  ·  ${formatTime(stState.totalDurationMs)}${resyncNote}`;
-
-    updateSignalMonitor(
-      `Forensic Engine: "${file.name}" — ` +
-        `${totalFrames} frames  ·  TD ${tdRawBits.length} bits / BD ${bdRawBits.length} bits  ·  ` +
-        `${totalResyncs} total resyncs  (${fmtLabel})`,
-    );
-  } catch (err) {
-    statusEl.style.color = "#f44";
-    statusEl.textContent = `✗ ${err.message}`;
-    console.error("Signal Tester forensic decode error:", err);
-  }
-}
-
-/**
- * Switch the main app to a given band — updates monitors, LED grid, and the
- * header band selector so everything reflects the Signal Tester's band choice.
- */
-function stSwitchBand(band) {
-  if (!BAND_CONFIG[band]) return;
-  currentBand = band;
-  const bandConfig = BAND_CONFIG[currentBand];
-
-  // Sync the top-level band selector
-  const mainSelect = document.getElementById("band-select");
-  if (mainSelect) mainSelect.value = currentBand;
-
-  // Update section title and character monitor visibility
-  const titleEl = document.getElementById("band-title");
-  if (titleEl) titleEl.textContent = `${bandConfig.title} - Signal Monitors`;
-
-  const munchEl = document.getElementById("munch-band");
-  const rockEl = document.getElementById("rock-band");
-  if (munchEl)
-    munchEl.style.display = currentBand === "munch" ? "grid" : "none";
-  if (rockEl) rockEl.style.display = currentBand === "rock" ? "grid" : "none";
-
-  clearAllMonitors();
-  setupCurrentBandSlots(); // rebuilds LED grid slot assignments for this band
-
-  // If stage is open, rebuild it for the new band
-  const stageModal = document.getElementById("stage-modal");
-  if (stageModal && stageModal.classList.contains("active")) buildStageArena();
-}
-
-/**
- * Start (or resume) signal tester playback.
- */
-function stPlay() {
-  if (stState.frames.length === 0) return;
-  if (stState.isPlaying) return;
-
-  // Switch monitors & LED grid to whichever band the user selected
-  const bandSel = document.getElementById("st-band-select");
-  if (bandSel) stSwitchBand(bandSel.value);
-
-  // Restart from beginning if tape is at the end
-  if (stState.currentFrame >= stState.totalFrames - 1) {
-    stState.currentFrame = 0;
-  }
-
-  stState.isPlaying = true;
-  stState.startTime =
-    Date.now() - Math.round((stState.currentFrame / 50) * 1000);
-
-  const playBtn = document.getElementById("st-play-btn");
-  const statusEl = document.getElementById("st-status");
-  if (playBtn) playBtn.textContent = "⏸ Pause";
-  if (statusEl) {
-    statusEl.style.color = "";
-    statusEl.textContent = "Playing…";
-  }
-  document.getElementById("st-stop-btn").disabled = false;
-
-  if (stState.is4ch && stState.musicBuffer) stStartMusic(stState.currentFrame);
-
-  stState.playbackTimer = setInterval(stPlaybackTick, 20); // 50 fps
-}
-
-/**
- * Pause signal tester playback, keeping the current frame position.
- */
-function stPause() {
-  if (!stState.isPlaying) return;
-  stState.isPlaying = false;
-  clearInterval(stState.playbackTimer);
-  stState.playbackTimer = null;
-  stStopMusic();
-
-  const playBtn = document.getElementById("st-play-btn");
-  const statusEl = document.getElementById("st-status");
-  if (playBtn) playBtn.textContent = "▶ Play";
-  if (statusEl)
-    statusEl.textContent = `Paused — frame ${stState.currentFrame} / ${stState.totalFrames}`;
-}
-
-/**
- * Stop signal tester playback and reset to frame 0.
- */
-function stStop() {
-  stState.isPlaying = false;
-  stState.currentFrame = 0;
-  clearInterval(stState.playbackTimer);
-  stState.playbackTimer = null;
-  stStopMusic();
-
-  const playBtn = document.getElementById("st-play-btn");
-  const statusEl = document.getElementById("st-status");
-  if (playBtn) playBtn.textContent = "▶ Play";
-  if (statusEl && stState.frames.length > 0) {
-    statusEl.style.color = "";
-    statusEl.textContent = "Ready";
-  }
-  stUpdateProgress(0);
-
-  // Clear the live signal buffers so the LED grid returns to idle
-  if (typeof signalGenerator !== "undefined") {
-    signalGenerator.trackTD.fill(0);
-    signalGenerator.trackBD.fill(0);
-  }
-}
-
-/**
- * setInterval tick at 20 ms — advances the playback frame and pushes data
- * directly into the signal generator's live buffers.
- * The existing updateLEDGrid() poll (running at ~25 fps) picks up changes.
- */
-function stPlaybackTick() {
-  if (!stState.isPlaying || stState.frames.length === 0) return;
-
-  const elapsed = Date.now() - stState.startTime;
-  const targetFrame = Math.min(
-    Math.floor(elapsed / 20), // 20 ms per frame = 50 fps
-    stState.totalFrames - 1,
-  );
-
-  if (stState.currentFrame < targetFrame) stState.currentFrame = targetFrame;
-
-  const frame = stState.frames[stState.currentFrame];
-  if (frame) {
-    signalGenerator.trackTD.set(frame.td);
-    signalGenerator.trackBD.set(frame.bd);
-  }
-
-  stUpdateProgress(stState.currentFrame);
-
-  // End of tape
-  if (stState.currentFrame >= stState.totalFrames - 1) {
-    clearInterval(stState.playbackTimer);
-    stState.playbackTimer = null;
-    stState.isPlaying = false;
-    stStopMusic();
-    const playBtn = document.getElementById("st-play-btn");
-    const statusEl = document.getElementById("st-status");
-    if (playBtn) playBtn.textContent = "▶ Play";
-    if (statusEl) {
-      statusEl.style.color = "#0f8";
-      statusEl.textContent = "✓ Playback complete";
-    }
-    // Leave the last frame's data in the signal buffers so LEDs show final state
-  }
-}
-
-/**
- * Begin playing the cached music buffer from a given frame offset.
- */
-function stStartMusic(fromFrame) {
-  if (!stState.musicBuffer) return;
-  stStopMusic();
-
-  const ac = signalGenerator.audioContext;
-  stState.musicGain = ac.createGain();
-  stState.musicGain.gain.setValueAtTime(
-    currentPlaybackState.volume,
-    ac.currentTime,
-  );
-  stState.musicGain.connect(ac.destination);
-
-  stState.musicSource = ac.createBufferSource();
-  stState.musicSource.buffer = stState.musicBuffer;
-  stState.musicSource.connect(stState.musicGain);
-  stState.musicSource.start(ac.currentTime, fromFrame / 50);
-  stState.musicSource.onended = () => {
-    if (stState.isPlaying) stStop();
-  };
-}
-
-/**
- * Stop (and discard) the music AudioBufferSourceNode.
- */
-function stStopMusic() {
-  if (stState.musicSource) {
-    try {
-      stState.musicSource.stop(0);
-    } catch (_) {}
-    stState.musicSource.disconnect();
-    stState.musicSource = null;
-  }
-  if (stState.musicGain) {
-    stState.musicGain.disconnect();
-    stState.musicGain = null;
-  }
-}
-
-/**
- * Refresh the signal tester progress bar and time readout.
- */
-function stUpdateProgress(currentFrame) {
-  const pct =
-    stState.totalFrames > 0
-      ? Math.round((currentFrame / stState.totalFrames) * 100)
-      : 0;
-  const progressEl = document.getElementById("st-progress");
-  const timeEl = document.getElementById("st-time");
-  if (progressEl) progressEl.value = pct;
-  if (timeEl) {
-    const cur = formatTime(Math.round((currentFrame / 50) * 1000));
-    const tot = formatTime(stState.totalDurationMs);
-    timeEl.textContent = `${cur} / ${tot}`;
-  }
-}
-
 /**
  * Stage View Logic
  */
@@ -3190,32 +2414,22 @@ function updateStageArena() {
   const modal = document.getElementById("stage-modal");
   if (!modal || !modal.classList.contains("active")) return;
 
-  const characters = document.querySelectorAll(".stage-character");
-  characters.forEach((charDiv) => {
+  // SViz mode: use decoded channel timeline from the CSO File Previewer.
+  // Live mode: read live BMC bits from signalGenerator.
+  const sviz = window._svizActiveState || null;
+
+  document.querySelectorAll(".stage-character").forEach((charDiv) => {
     const charName = charDiv.dataset.name;
     const moveData = CHARACTER_MOVEMENTS[charName];
+    if (!moveData?.movements) return;
 
-    if (moveData && moveData.movements) {
-      Object.entries(moveData.movements).forEach(([moveKey, config]) => {
-        const isBitOn = signalGenerator.getBit(config.track, config.bit);
-        const part = charDiv.querySelector(
-          `.stage-part[data-move="${moveKey}"]`,
-        );
-        if (part) {
-          if (isBitOn) {
-            part.classList.add("active");
-          } else {
-            part.classList.remove("active");
-          }
-        }
-      });
-    }
+    Object.entries(moveData.movements).forEach(([moveKey, config]) => {
+      const isBitOn = sviz
+        ? (sviz.active.get(charName)?.has(moveKey) ?? false)
+        : signalGenerator.getBit(config.track, config.bit);
+
+      const part = charDiv.querySelector(`.stage-part[data-move="${moveKey}"]`);
+      if (part) part.classList.toggle("active", !!isBitOn);
+    });
   });
-}
-
-// Intercept the poll to update stage
-const originalUpdateLEDGrid = updateLEDGrid;
-updateLEDGrid = function () {
-  originalUpdateLEDGrid();
-  updateStageArena();
-};
+}; 

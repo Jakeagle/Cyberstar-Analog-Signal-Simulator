@@ -1378,3 +1378,281 @@ h1 {
   font-family: "Courier New", monospace;
   white-space: nowrap;
 }
+
+/* ==========================================================================
+   SViz — CSO File Previewer
+   ========================================================================== */
+
+.sviz-panel {
+  margin-top: 24px;
+}
+
+.sviz-status {
+  margin: 8px 0;
+  font-size: 0.88em;
+  min-height: 20px;
+  font-family: "Courier New", monospace;
+}
+.sviz-status-info {
+  color: #8ab4f8;
+}
+.sviz-status-success {
+  color: #81c995;
+}
+.sviz-status-error {
+  color: #f28b82;
+}
+
+.sviz-verdict {
+  font-size: 1.05em;
+  font-weight: bold;
+  padding: 10px 14px;
+  border-radius: 6px;
+  margin: 10px 0 6px;
+}
+.sviz-verdict-pass {
+  background: rgba(0, 150, 80, 0.18);
+  color: #81c995;
+  border: 1px solid #2d8a2d;
+}
+.sviz-verdict-fail {
+  background: rgba(180, 0, 0, 0.18);
+  color: #f28b82;
+  border: 1px solid #8b2222;
+}
+
+.sviz-reasons {
+  margin: 4px 0 8px 18px;
+  color: #f28b82;
+  font-size: 0.88em;
+  font-family: "Courier New", monospace;
+}
+
+.sviz-stats {
+  font-size: 0.82em;
+  color: rgba(255, 255, 255, 0.55);
+  margin-bottom: 10px;
+  font-family: "Courier New", monospace;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 0;
+}
+
+.sviz-disclaimer {
+  background: rgba(255, 180, 0, 0.1);
+  border: 1px solid rgba(255, 180, 0, 0.35);
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-size: 0.84em;
+  color: rgba(255, 220, 120, 0.9);
+  margin: 10px 0;
+  line-height: 1.5;
+}
+
+.sviz-waveform {
+  display: block;
+  width: 100%;
+  height: 120px;
+  border-radius: 6px;
+  background: #0a0a0f;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  margin: 10px 0;
+}
+
+.sviz-player-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+.sviz-progress {
+  flex: 1;
+  min-width: 120px;
+  cursor: pointer;
+}
+.sviz-time {
+  font-family: "Courier New", monospace;
+  font-size: 0.88em;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+/* Export row */
+.sviz-export-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 6px 0 2px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.sviz-export-label {
+  font-size: 0.82em;
+  color: rgba(255, 255, 255, 0.5);
+  white-space: nowrap;
+}
+.sviz-export-btn {
+  font-size: 0.82em;
+  padding: 4px 12px;
+  background: rgba(0, 180, 120, 0.18);
+  border: 1px solid rgba(0, 200, 130, 0.45);
+  color: #7fffd4;
+}
+.sviz-export-btn:hover {
+  background: rgba(0, 200, 130, 0.3);
+  border-color: rgba(0, 220, 150, 0.7);
+}
+.sviz-export-btn-cso {
+  background: rgba(0, 120, 220, 0.18);
+  border: 1px solid rgba(60, 160, 255, 0.45);
+  color: #add8ff;
+}
+.sviz-export-btn-cso:hover {
+  background: rgba(60, 160, 255, 0.28);
+  border-color: rgba(80, 180, 255, 0.7);
+}
+
+/* Channel activity grid */
+.sviz-channel-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+}
+.sviz-char-group {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 8px 10px;
+  min-width: 130px;
+}
+.sviz-char-label {
+  font-size: 0.72em;
+  font-weight: bold;
+  color: rgba(255, 255, 255, 0.45);
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+.sviz-leds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.sviz-led {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  transition:
+    background 0.04s,
+    box-shadow 0.04s;
+  cursor: default;
+}
+.sviz-led.sviz-led-td {
+  background: rgba(0, 220, 255, 0.85);
+  box-shadow: 0 0 6px rgba(0, 220, 255, 0.7);
+}
+.sviz-led.sviz-led-bd {
+  background: rgba(255, 180, 0, 0.9);
+  box-shadow: 0 0 6px rgba(255, 180, 0, 0.7);
+}
+
+/* Legend labels */
+.sviz-legend-td {
+  color: rgba(0, 220, 255, 0.9);
+  font-weight: bold;
+}
+.sviz-legend-bd {
+  color: rgba(255, 180, 0, 0.9);
+  font-weight: bold;
+}
+
+/* ─── Python Progress Modal ──────────────────────────────────────────────── */
+.py-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 12, 28, 0.82);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+.py-modal-overlay[hidden] {
+  display: none;
+}
+.py-modal-overlay.py-modal-visible {
+  opacity: 1;
+}
+
+.py-modal-box {
+  background: linear-gradient(160deg, #1b2040 0%, #111624 100%);
+  border: 1px solid rgba(0, 200, 255, 0.2);
+  border-radius: 14px;
+  padding: 38px 44px 32px;
+  width: min(480px, 90vw);
+  box-shadow:
+    0 8px 48px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(0, 200, 255, 0.08) inset;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  text-align: center;
+}
+
+/* Spinner */
+.py-modal-spinner {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 4px solid rgba(0, 200, 255, 0.15);
+  border-top-color: #00c8ff;
+  animation: py-spin 0.85s linear infinite;
+}
+@keyframes py-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.py-modal-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #e0f4ff;
+  letter-spacing: 0.02em;
+  margin: 0;
+}
+
+.py-modal-msg {
+  font-size: 0.82rem;
+  color: rgba(180, 210, 230, 0.75);
+  min-height: 1.2em;
+  max-width: 380px;
+  word-break: break-word;
+  margin: 0;
+}
+
+/* Progress bar track */
+.py-modal-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.py-modal-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #0090d0 0%, #00c8ff 100%);
+  border-radius: 3px;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 8px rgba(0, 200, 255, 0.55);
+}

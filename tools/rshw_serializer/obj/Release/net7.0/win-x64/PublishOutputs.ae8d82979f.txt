@@ -1,0 +1,2 @@
+C:\Users\New User\Documents\VScodeFiles\Cyberstar Simulator\tools\rshw_serializer\publish\rshw_serializer.pdb
+C:\Users\New User\Documents\VScodeFiles\Cyberstar Simulator\tools\rshw_serializer\publish\rshw_serializer.exe
