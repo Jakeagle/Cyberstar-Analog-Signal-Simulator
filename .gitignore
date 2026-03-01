@@ -1,1 +1,22 @@
+# Audio files
 *.wav
+*.mp3
+*.ogg
+*.flac
+*.aac
+*.m4a
+*.wma
+*.opus
+
+# Video files (all MP4s excluded except the Cyberstar intro)
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.wmv
+!Cyberstar Intro (HD).mp4
+
+# Large show/data files
+*.rshw
+*.cso
