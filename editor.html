@@ -803,11 +803,12 @@
       let charMeta = []; // [{ charName, color, movKeys[] }] in display order
       let selectedKey = null; // "charName||movKey||startFrame" or null
       let dragState = null; // { charName, movKey, anchorFrame, curFrame }
-      let blockMoveState = null; // { charName, movKey, startFrame, endFrame, dur, grabOffset, el, row, mouseDownX, dragging, previewStart, previewEnd }
+      let blockMoveState = null; // { charName, movKey, startFrame, endFrame, dur, grabOffset, el, row, mouseDownX, dragging, mode ('move'|'resize-start'|'resize-end'), previewStart, previewEnd }
       let snapEnabled = true;
       let rafId = null;
 
       const SNAP_PX = 12; // pixels — snap activation threshold
+      const EDGE_PX = 10; // pixels from block edge that triggers resize instead of move
 
       /* ============================================================
    DOM REFS
@@ -1194,13 +1195,31 @@
           el.className = "signal-block";
           el.dataset.key = key;
           el.style.cssText = `left:${x}px;width:${w}px;background:${color};`;
-          el.title = `${charName} / ${movKey.replace(/_/g, " ")}\nON: F${blk.startFrame} (${frameToTimestamp(blk.startFrame)})\nOFF: F${blk.endFrame} (${frameToTimestamp(blk.endFrame)})\nDrag to move  ·  Click to select  ·  Del to remove`;
+          el.title = `${charName} / ${movKey.replace(/_/g, " ")}\nON: F${blk.startFrame} (${frameToTimestamp(blk.startFrame)})\nOFF: F${blk.endFrame} (${frameToTimestamp(blk.endFrame)})\nDrag middle → move  |  Drag edge → resize  |  Del → remove`;
+          // Dynamic cursor: ew-resize near edges, grab in middle
+          el.addEventListener("mousemove", (ev) => {
+            const ex = ev.offsetX;
+            const bw = el.offsetWidth;
+            if (ex < EDGE_PX || bw - ex < EDGE_PX)
+              el.style.cursor = "ew-resize";
+            else el.style.cursor = "grab";
+          });
+          el.addEventListener("mouseleave", () => {
+            el.style.cursor = "";
+          });
           el.addEventListener("mousedown", (e) => {
             if (e.button !== 0) return;
             e.stopPropagation();
             e.preventDefault();
             selectBlock(key, el);
-            // Prepare a potential block-move drag
+            const bw = el.offsetWidth;
+            const ex = e.offsetX;
+            const mode =
+              ex < EDGE_PX
+                ? "resize-start"
+                : bw - ex < EDGE_PX
+                  ? "resize-end"
+                  : "move";
             blockMoveState = {
               charName,
               movKey,
@@ -1211,6 +1230,7 @@
               row,
               mouseDownX: e.clientX,
               dragging: false,
+              mode,
               previewStart: undefined,
               previewEnd: undefined,
             };
@@ -1312,67 +1332,114 @@
       }
 
       function onMouseMove(e) {
-        /* ── Block-move drag ── */
+        /* ── Block interaction drag (move / resize-start / resize-end) ── */
         if (blockMoveState) {
           const dx = e.clientX - blockMoveState.mouseDownX;
           if (!blockMoveState.dragging) {
-            if (Math.abs(dx) < 4) return; // wait for intentional drag intent
+            if (Math.abs(dx) < 4) return;
             blockMoveState.dragging = true;
             blockMoveState.el.classList.add("block-dragging");
-            // Compute how many frames into the block the user grabbed
-            const rowRect = blockMoveState.row.getBoundingClientRect();
-            const grabX =
-              blockMoveState.mouseDownX -
-              rowRect.left +
-              elTimelineWrap.scrollLeft;
-            blockMoveState.grabOffset =
-              xToFrame(grabX) - blockMoveState.startFrame;
+            if (blockMoveState.mode === "move") {
+              // Compute grab offset (frames into the block where user clicked)
+              const rowRect = blockMoveState.row.getBoundingClientRect();
+              const grabX =
+                blockMoveState.mouseDownX -
+                rowRect.left +
+                elTimelineWrap.scrollLeft;
+              blockMoveState.grabOffset =
+                xToFrame(grabX) - blockMoveState.startFrame;
+            }
           }
           if (blockMoveState.dragging) {
+            const { charName, movKey, startFrame, endFrame, dur, mode } =
+              blockMoveState;
             const rowRect = blockMoveState.row.getBoundingClientRect();
             const rawX = e.clientX - rowRect.left + elTimelineWrap.scrollLeft;
-            const rawStart = xToFrame(rawX) - blockMoveState.grabOffset;
+            const rawFrame = xToFrame(rawX);
 
-            // Snap the start edge; also try snapping the end edge
-            const { charName, movKey, startFrame, endFrame, dur } =
-              blockMoveState;
-            let snappedStart = snapFrame(
-              rawStart,
-              e.shiftKey,
-              charName,
-              movKey,
-              startFrame,
-              endFrame,
-            );
-            const rawEnd = rawStart + dur;
-            const snappedEnd = snapFrame(
-              rawEnd,
-              e.shiftKey,
-              charName,
-              movKey,
-              startFrame,
-              endFrame,
-            );
-            // Prefer whichever snap was closer
-            if (
-              snappedEnd !== rawEnd &&
-              Math.abs(snappedEnd - rawEnd) < Math.abs(snappedStart - rawStart)
-            ) {
-              snappedStart = snappedEnd - dur;
+            if (mode === "move") {
+              const rawStart = rawFrame - blockMoveState.grabOffset;
+              const rawEnd = rawStart + dur;
+              const snappedStart = snapFrame(
+                rawStart,
+                e.shiftKey,
+                charName,
+                movKey,
+                startFrame,
+                endFrame,
+              );
+              const snappedEnd = snapFrame(
+                rawEnd,
+                e.shiftKey,
+                charName,
+                movKey,
+                startFrame,
+                endFrame,
+              );
+
+              // Track which edges actually snapped and by how much.
+              // If an edge didn't snap, snapFrame returns the raw value → distance 0,
+              // which would incorrectly beat a real snap on the other edge.
+              // Use Infinity for "no snap happened" so the other edge always wins.
+              const startDist =
+                snappedStart !== rawStart
+                  ? Math.abs(snappedStart - rawStart)
+                  : Infinity;
+              const endDist =
+                snappedEnd !== rawEnd
+                  ? Math.abs(snappedEnd - rawEnd)
+                  : Infinity;
+
+              let finalStart = snappedStart;
+              if (endDist < startDist) finalStart = snappedEnd - dur; // end-edge snap wins
+
+              const clampedStart = Math.max(
+                0,
+                Math.min(totalFrames - dur, finalStart),
+              );
+              blockMoveState.previewStart = clampedStart;
+              blockMoveState.previewEnd = clampedStart + dur;
+              // Show snap line at whichever edge is snapped (prefer end if that won)
+              const snapLineFrame =
+                endDist < startDist ? clampedStart + dur : clampedStart;
+              updateDragPreview(
+                blockMoveState.row,
+                clampedStart,
+                clampedStart + dur,
+              );
+              showSnapLine(snapLineFrame);
+            } else if (mode === "resize-start") {
+              const snapped = snapFrame(
+                rawFrame,
+                e.shiftKey,
+                charName,
+                movKey,
+                startFrame,
+                endFrame,
+              );
+              const newStart = Math.max(0, Math.min(endFrame - 1, snapped));
+              blockMoveState.previewStart = newStart;
+              blockMoveState.previewEnd = endFrame;
+              updateDragPreview(blockMoveState.row, newStart, endFrame);
+              showSnapLine(newStart);
+            } else if (mode === "resize-end") {
+              const snapped = snapFrame(
+                rawFrame,
+                e.shiftKey,
+                charName,
+                movKey,
+                startFrame,
+                endFrame,
+              );
+              const newEnd = Math.max(
+                startFrame + 1,
+                Math.min(totalFrames, snapped),
+              );
+              blockMoveState.previewStart = startFrame;
+              blockMoveState.previewEnd = newEnd;
+              updateDragPreview(blockMoveState.row, startFrame, newEnd);
+              showSnapLine(newEnd);
             }
-            const clampedStart = Math.max(
-              0,
-              Math.min(totalFrames - dur, snappedStart),
-            );
-
-            blockMoveState.previewStart = clampedStart;
-            blockMoveState.previewEnd = clampedStart + dur;
-            updateDragPreview(
-              blockMoveState.row,
-              clampedStart,
-              clampedStart + dur,
-            );
-            showSnapLine(clampedStart);
           }
           return;
         }
@@ -1406,7 +1473,8 @@
             bm.el.classList.remove("block-dragging");
             if (
               bm.previewStart !== undefined &&
-              bm.previewStart !== bm.startFrame
+              (bm.previewStart !== bm.startFrame ||
+                bm.previewEnd !== bm.endFrame)
             ) {
               // Overlap check — exclude the block being moved
               const overlaps = getBlocks(bm.charName, bm.movKey).some((b) => {
