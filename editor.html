@@ -327,7 +327,7 @@
         top: 3px;
         height: calc(var(--row-h) - 6px);
         border-radius: 3px;
-        cursor: pointer;
+        cursor: grab;
         border: 1px solid transparent;
         transition:
           opacity 0.1s,
@@ -343,6 +343,29 @@
         border-color: #fff !important;
         filter: brightness(1.4);
         box-shadow: 0 0 6px rgba(255, 255, 255, 0.4);
+      }
+      .signal-block.block-dragging {
+        opacity: 0.3 !important;
+        cursor: grabbing;
+      }
+
+      /* ── SNAP LINE ────────────────────────────────────────────── */
+      #snap-line {
+        position: absolute;
+        top: 0;
+        width: 1px;
+        background: #00ffcc;
+        box-shadow: 0 0 5px #00ffcc88;
+        pointer-events: none;
+        display: none;
+        z-index: 20;
+      }
+
+      /* ── SNAP BUTTON ACTIVE STATE ─────────────────────────────── */
+      .snap-active {
+        border-color: rgba(0, 255, 180, 0.5) !important;
+        color: #00ffb0 !important;
+        background: rgba(0, 255, 160, 0.08) !important;
       }
 
       /* ── PLAYHEAD ─────────────────────────────────────────────── */
@@ -560,6 +583,13 @@
           <button id="btn-play" class="tb-btn" disabled>▶ Play</button>
           <button id="btn-pause" class="tb-btn" disabled>⏸ Pause</button>
           <button id="btn-stop" class="tb-btn" disabled>⏹ Stop</button>
+          <button
+            id="btn-snap"
+            class="tb-btn snap-active"
+            title="Snap to frames / block edges / time marks — hold Shift to bypass (S)"
+          >
+            🔒 Snap
+          </button>
           <span id="time-display" class="time-display">0:00.000 / F0</span>
         </div>
 
@@ -636,6 +666,7 @@
           <div id="tracks-container">
             <div id="playhead"></div>
             <div id="drag-preview"></div>
+            <div id="snap-line"></div>
           </div>
         </div>
       </div>
@@ -692,12 +723,14 @@
 
       <!-- ── HELP BAR ── -->
       <div id="help-bar">
-        <span><kbd>Click+drag</kbd> empty row → create signal block</span>
+        <span><kbd>Drag</kbd> empty row → create block</span>
+        <span><kbd>Drag</kbd> block → move block</span>
         <span><kbd>Click</kbd> block → select</span>
         <span><kbd>Del</kbd> → remove selected</span>
         <span><kbd>Click</kbd> ruler → seek</span>
         <span><kbd>Space</kbd> → play/pause</span>
-        <span><kbd>Scroll</kbd> timeline → navigate</span>
+        <span><kbd>S</kbd> → toggle snap</span>
+        <span><kbd>Shift</kbd>+drag → bypass snap</span>
       </div>
 
       <!-- ── STATUS BAR ── -->
@@ -770,15 +803,19 @@
       let charMeta = []; // [{ charName, color, movKeys[] }] in display order
       let selectedKey = null; // "charName||movKey||startFrame" or null
       let dragState = null; // { charName, movKey, anchorFrame, curFrame }
+      let blockMoveState = null; // { charName, movKey, startFrame, endFrame, dur, grabOffset, el, row, mouseDownX, dragging, previewStart, previewEnd }
+      let snapEnabled = true;
       let rafId = null;
+
+      const SNAP_PX = 12; // pixels — snap activation threshold
 
       /* ============================================================
    DOM REFS
    ============================================================ */
       let elEditorBody, elEmptyState, elLabelScroll, elTimelineWrap;
-      let elRulerCanvas, elTracks, elPlayhead, elDragPreview;
+      let elRulerCanvas, elTracks, elPlayhead, elDragPreview, elSnapLine;
       let elStatus, elTimeDisplay, elZoomLabel;
-      let elBtnPlay, elBtnPause, elBtnStop, elBtnExport;
+      let elBtnPlay, elBtnPause, elBtnStop, elBtnExport, elBtnSnap;
 
       /* ============================================================
    UTILITIES
@@ -800,6 +837,84 @@
       function setStatus(msg, color) {
         elStatus.textContent = msg;
         elStatus.style.color = color || "";
+      }
+
+      /* ============================================================
+   SNAP
+   ============================================================ */
+      /** Collect all snap-target frames for a given row, excluding one block. */
+      function getSnapFrames(charName, movKey, excludeFrom, excludeTo) {
+        const targets = new Set();
+        // Always snap to start/end of show
+        targets.add(0);
+        targets.add(totalFrames);
+
+        // Snap interval mirrors the ruler's major-tick interval at current zoom
+        const pxPerSec = zoom * FPS;
+        const secOptions = [0.1, 0.2, 0.5, 1, 2, 5, 10, 30, 60];
+        const majorSec = secOptions.find((s) => s * pxPerSec >= 80) ?? 60;
+        const majorF = Math.round(majorSec * FPS);
+        for (let f = 0; f <= totalFrames; f += majorF) targets.add(f);
+
+        // Also snap to whole seconds when zoomed in enough
+        if (zoom >= 4) {
+          for (let f = 0; f <= totalFrames; f += FPS) targets.add(f);
+        }
+
+        // Snap to edges of all blocks on this row (excluding the block being moved)
+        for (const blk of getBlocks(charName, movKey)) {
+          if (blk.startFrame === excludeFrom && blk.endFrame === excludeTo)
+            continue;
+          targets.add(blk.startFrame);
+          targets.add(blk.endFrame);
+        }
+        return [...targets].sort((a, b) => a - b);
+      }
+
+      /** Return the nearest snap frame within SNAP_PX, or rawFrame if none / snap off. */
+      function snapFrame(
+        rawFrame,
+        shiftHeld,
+        charName,
+        movKey,
+        excludeFrom,
+        excludeTo,
+      ) {
+        if (!snapEnabled || shiftHeld) return rawFrame;
+        const thresh = Math.max(1, SNAP_PX / zoom);
+        const targets = getSnapFrames(charName, movKey, excludeFrom, excludeTo);
+        let best = rawFrame,
+          bestDist = thresh;
+        for (const t of targets) {
+          const d = Math.abs(t - rawFrame);
+          if (d < bestDist) {
+            bestDist = d;
+            best = t;
+          }
+        }
+        return best;
+      }
+
+      function showSnapLine(frame) {
+        if (!elSnapLine) return;
+        elSnapLine.style.left = frameToX(frame) + "px";
+        elSnapLine.style.height = elTracks.offsetHeight + "px";
+        elSnapLine.style.display = "block";
+      }
+
+      function hideSnapLine() {
+        if (elSnapLine) elSnapLine.style.display = "none";
+      }
+
+      function toggleSnap() {
+        snapEnabled = !snapEnabled;
+        elBtnSnap.classList.toggle("snap-active", snapEnabled);
+        elBtnSnap.textContent = snapEnabled ? "🔒 Snap" : "🔓 Snap";
+        setStatus(
+          snapEnabled
+            ? "Snap ON — blocks will snap to frames, ruler marks, and block edges."
+            : "Snap OFF — freeform placement.",
+        );
       }
 
       /* ============================================================
@@ -1028,7 +1143,12 @@
 
         // Clear existing tracks but keep playhead + drag-preview
         for (const el of [...elTracks.children]) {
-          if (el.id !== "playhead" && el.id !== "drag-preview") el.remove();
+          if (
+            el.id !== "playhead" &&
+            el.id !== "drag-preview" &&
+            el.id !== "snap-line"
+          )
+            el.remove();
         }
 
         const frag = document.createDocumentFragment();
@@ -1074,10 +1194,26 @@
           el.className = "signal-block";
           el.dataset.key = key;
           el.style.cssText = `left:${x}px;width:${w}px;background:${color};`;
-          el.title = `${charName} / ${movKey.replace(/_/g, " ")}\nON: F${blk.startFrame} (${frameToTimestamp(blk.startFrame)})\nOFF: F${blk.endFrame} (${frameToTimestamp(blk.endFrame)})\nClick to select  ·  Del to remove`;
+          el.title = `${charName} / ${movKey.replace(/_/g, " ")}\nON: F${blk.startFrame} (${frameToTimestamp(blk.startFrame)})\nOFF: F${blk.endFrame} (${frameToTimestamp(blk.endFrame)})\nDrag to move  ·  Click to select  ·  Del to remove`;
           el.addEventListener("mousedown", (e) => {
+            if (e.button !== 0) return;
             e.stopPropagation();
+            e.preventDefault();
             selectBlock(key, el);
+            // Prepare a potential block-move drag
+            blockMoveState = {
+              charName,
+              movKey,
+              startFrame: blk.startFrame,
+              endFrame: blk.endFrame,
+              dur: blk.endFrame - blk.startFrame,
+              el,
+              row,
+              mouseDownX: e.clientX,
+              dragging: false,
+              previewStart: undefined,
+              previewEnd: undefined,
+            };
           });
           row.appendChild(el);
         }
@@ -1159,7 +1295,7 @@
         const movKey = row.dataset.mov;
         const rect = row.getBoundingClientRect();
         const rawX = e.clientX - rect.left + elTimelineWrap.scrollLeft;
-        const frame = xToFrame(rawX);
+        const frame = snapFrame(xToFrame(rawX), e.shiftKey, charName, movKey);
 
         clearSelection();
         dragState = {
@@ -1168,23 +1304,145 @@
           anchorFrame: frame,
           curFrame: frame,
           row,
+          shiftHeld: e.shiftKey,
         };
         updateDragPreview(row, frame, frame);
+        showSnapLine(frame);
         e.preventDefault();
       }
 
       function onMouseMove(e) {
+        /* ── Block-move drag ── */
+        if (blockMoveState) {
+          const dx = e.clientX - blockMoveState.mouseDownX;
+          if (!blockMoveState.dragging) {
+            if (Math.abs(dx) < 4) return; // wait for intentional drag intent
+            blockMoveState.dragging = true;
+            blockMoveState.el.classList.add("block-dragging");
+            // Compute how many frames into the block the user grabbed
+            const rowRect = blockMoveState.row.getBoundingClientRect();
+            const grabX =
+              blockMoveState.mouseDownX -
+              rowRect.left +
+              elTimelineWrap.scrollLeft;
+            blockMoveState.grabOffset =
+              xToFrame(grabX) - blockMoveState.startFrame;
+          }
+          if (blockMoveState.dragging) {
+            const rowRect = blockMoveState.row.getBoundingClientRect();
+            const rawX = e.clientX - rowRect.left + elTimelineWrap.scrollLeft;
+            const rawStart = xToFrame(rawX) - blockMoveState.grabOffset;
+
+            // Snap the start edge; also try snapping the end edge
+            const { charName, movKey, startFrame, endFrame, dur } =
+              blockMoveState;
+            let snappedStart = snapFrame(
+              rawStart,
+              e.shiftKey,
+              charName,
+              movKey,
+              startFrame,
+              endFrame,
+            );
+            const rawEnd = rawStart + dur;
+            const snappedEnd = snapFrame(
+              rawEnd,
+              e.shiftKey,
+              charName,
+              movKey,
+              startFrame,
+              endFrame,
+            );
+            // Prefer whichever snap was closer
+            if (
+              snappedEnd !== rawEnd &&
+              Math.abs(snappedEnd - rawEnd) < Math.abs(snappedStart - rawStart)
+            ) {
+              snappedStart = snappedEnd - dur;
+            }
+            const clampedStart = Math.max(
+              0,
+              Math.min(totalFrames - dur, snappedStart),
+            );
+
+            blockMoveState.previewStart = clampedStart;
+            blockMoveState.previewEnd = clampedStart + dur;
+            updateDragPreview(
+              blockMoveState.row,
+              clampedStart,
+              clampedStart + dur,
+            );
+            showSnapLine(clampedStart);
+          }
+          return;
+        }
+
+        /* ── New-block creation drag ── */
         if (!dragState) return;
         const row = dragState.row;
         const rect = row.getBoundingClientRect();
         const rawX = e.clientX - rect.left + elTimelineWrap.scrollLeft;
-        dragState.curFrame = xToFrame(rawX);
+        dragState.curFrame = snapFrame(
+          xToFrame(rawX),
+          e.shiftKey,
+          dragState.charName,
+          dragState.movKey,
+        );
         const a = Math.min(dragState.anchorFrame, dragState.curFrame);
         const b = Math.max(dragState.anchorFrame, dragState.curFrame);
         updateDragPreview(row, a, b);
+        showSnapLine(b);
       }
 
-      function onMouseUp() {
+      function onMouseUp(e) {
+        /* ── Block-move drag end ── */
+        if (blockMoveState) {
+          const bm = blockMoveState;
+          blockMoveState = null;
+          hideDragPreview();
+          hideSnapLine();
+
+          if (bm.dragging) {
+            bm.el.classList.remove("block-dragging");
+            if (
+              bm.previewStart !== undefined &&
+              bm.previewStart !== bm.startFrame
+            ) {
+              // Overlap check — exclude the block being moved
+              const overlaps = getBlocks(bm.charName, bm.movKey).some((b) => {
+                if (
+                  b.startFrame === bm.startFrame &&
+                  b.endFrame === bm.endFrame
+                )
+                  return false;
+                return (
+                  bm.previewStart < b.endFrame && bm.previewEnd > b.startFrame
+                );
+              });
+              if (overlaps) {
+                setStatus(
+                  "⚠ Cannot move block — would overlap another signal.",
+                  "#fa0",
+                );
+                refreshRow(bm.charName, bm.movKey);
+              } else {
+                commitBlockMove(
+                  bm.charName,
+                  bm.movKey,
+                  bm.startFrame,
+                  bm.endFrame,
+                  bm.previewStart,
+                  bm.previewEnd,
+                );
+              }
+            } else {
+              refreshRow(bm.charName, bm.movKey); // re-render to remove dragging class
+            }
+          }
+          return;
+        }
+
+        /* ── New-block creation drag end ── */
         if (!dragState) return;
         const { charName, movKey, anchorFrame, curFrame: cf, row } = dragState;
         let startFrame = Math.min(anchorFrame, cf);
@@ -1193,6 +1451,7 @@
         endFrame = Math.min(endFrame, totalFrames);
 
         hideDragPreview();
+        hideSnapLine();
         dragState = null;
 
         if (startFrame >= endFrame) return;
@@ -1210,6 +1469,69 @@
         }
 
         commitInsert(charName, movKey, startFrame, endFrame);
+      }
+
+      /* ============================================================
+   BLOCK MOVE
+   ============================================================ */
+      function commitBlockMove(
+        charName,
+        movKey,
+        oldStart,
+        oldEnd,
+        newStart,
+        newEnd,
+      ) {
+        const sigs = showData?.characters?.[charName]?.signals;
+        if (!sigs) return;
+
+        // Find the exact ON signal at oldStart and its matching OFF at oldEnd
+        let onIdx = -1,
+          offIdx = -1;
+        for (let i = 0; i < sigs.length; i++) {
+          if (
+            sigs[i].movement === movKey &&
+            sigs[i].frame === oldStart &&
+            sigs[i].state === true
+          )
+            onIdx = i;
+        }
+        if (onIdx >= 0) {
+          for (let i = onIdx + 1; i < sigs.length; i++) {
+            if (
+              sigs[i].movement === movKey &&
+              sigs[i].frame === oldEnd &&
+              sigs[i].state === false
+            ) {
+              offIdx = i;
+              break;
+            }
+          }
+        }
+        if (onIdx < 0 || offIdx < 0) {
+          setStatus("✗ Could not locate signals to move.", "#f44");
+          refreshRow(charName, movKey);
+          return;
+        }
+
+        sigs[onIdx].frame = newStart;
+        sigs[onIdx].timestamp = frameToTimestamp(newStart);
+        sigs[offIdx].frame = newEnd;
+        sigs[offIdx].timestamp = frameToTimestamp(newEnd);
+        sigs.sort((a, b) => a.frame - b.frame || (a.state ? 1 : -1));
+
+        selectedKey = `${charName}||${movKey}||${newStart}`;
+        refreshRow(charName, movKey);
+
+        // Re-apply selection highlight on the moved block
+        const movedEl = elTracks.querySelector(
+          `.signal-block[data-key="${CSS.escape(selectedKey)}"]`,
+        );
+        if (movedEl) movedEl.classList.add("selected");
+
+        setStatus(
+          `Moved: ${charName} / ${movKey.replace(/_/g, " ")} → F${newStart}–F${newEnd} (${frameToTimestamp(newStart)} – ${frameToTimestamp(newEnd)})`,
+        );
       }
 
       function commitInsert(charName, movKey, startFrame, endFrame) {
@@ -1407,11 +1729,13 @@
         sourceNode.onended = () => {
           isPlaying = false;
           cancelAnimationFrame(rafId);
+          if (audioBuffer) elBtnPlay.disabled = false;
         };
 
         playAudioStart = ctx.currentTime;
         playFrameStart = curFrame;
         isPlaying = true;
+        elBtnPlay.disabled = true;
 
         const tick = () => {
           const elapsed = ctx.currentTime - playAudioStart;
@@ -1445,6 +1769,7 @@
           } catch (_) {}
           sourceNode = null;
         }
+        if (audioBuffer) elBtnPlay.disabled = false;
       }
 
       function stopPlayback(resetFrame = true) {
@@ -1536,6 +1861,8 @@
         elBtnPause = document.getElementById("btn-pause");
         elBtnStop = document.getElementById("btn-stop");
         elBtnExport = document.getElementById("btn-export");
+        elBtnSnap = document.getElementById("btn-snap");
+        elSnapLine = document.getElementById("snap-line");
 
         // File inputs
         function bindFile(id, fn) {
@@ -1578,6 +1905,7 @@
         elBtnPause.addEventListener("click", pausePlayback);
         elBtnStop.addEventListener("click", () => stopPlayback(true));
         elBtnExport.addEventListener("click", exportJSON);
+        elBtnSnap.addEventListener("click", toggleSnap);
 
         // Zoom buttons
         document
@@ -1650,6 +1978,7 @@
           if (e.code === "Equal" || e.code === "NumpadAdd") applyZoom(zoom + 1);
           if (e.code === "Minus" || e.code === "NumpadSubtract")
             applyZoom(zoom - 1);
+          if (e.code === "KeyS") toggleSnap();
         });
       });
     </script>
