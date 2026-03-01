@@ -2026,6 +2026,140 @@
       }
 
       /* ============================================================
+   LOCAL STORAGE — SAVE / LOAD
+   ============================================================ */
+      const LS_PREFIX = "cyberstar_show::";
+
+      function lsSlug(title) {
+        return (
+          LS_PREFIX +
+          (title || "untitled").replace(/[^a-z0-9_\-]/gi, "_").toLowerCase()
+        );
+      }
+
+      function getAllSavedKeys() {
+        return Object.keys(localStorage)
+          .filter((k) => k.startsWith(LS_PREFIX))
+          .sort();
+      }
+
+      function saveToLocalStorage() {
+        if (!showData) return;
+        for (const cd of Object.values(showData.characters))
+          for (const sig of cd.signals)
+            sig.timestamp = frameToTimestamp(sig.frame);
+        showData.version = "3.0";
+        showData.fps = FPS;
+        showData.duration_frames = totalFrames;
+        showData.duration_ms = frameToMs(totalFrames);
+        showData.savedAt = new Date().toISOString();
+        const key = lsSlug(showData.title);
+        try {
+          localStorage.setItem(key, JSON.stringify(showData));
+          setStatus(`💾 Saved "${showData.title}" to browser storage.`);
+        } catch (_) {
+          setStatus("✗ Could not save — browser storage may be full.", "#f44");
+        }
+      }
+
+      function loadFromLocalStorage(key) {
+        try {
+          const obj = JSON.parse(localStorage.getItem(key));
+          if (!obj || !obj.cyberstar_show)
+            throw new Error("Invalid show data.");
+          showData = obj;
+          totalFrames =
+            obj.duration_frames ?? msToFrame(obj.duration_ms ?? 180000);
+          const band = obj.band || "rock";
+          buildRowMeta(band);
+          buildEditor();
+          document.getElementById("show-title").textContent =
+            obj.title || "Untitled";
+          const badge = document.getElementById("band-badge");
+          badge.textContent = band === "munch" ? "MMBB" : "RFE";
+          badge.className = `band-badge band-${band}`;
+          badge.style.display = "";
+          elBtnExport.disabled = false;
+          document.getElementById("btn-save").disabled = false;
+          const cueCount = Object.values(obj.characters).reduce(
+            (n, c) => n + c.signals.length,
+            0,
+          );
+          setStatus(
+            `Loaded "${obj.title}" from browser storage — ${totalFrames} frames, ${cueCount} signal cues.`,
+          );
+        } catch (err) {
+          setStatus(`✗ ${err.message}`, "#f44");
+        }
+      }
+
+      function deleteFromLocalStorage(key) {
+        try {
+          const data = JSON.parse(localStorage.getItem(key));
+          const title = data?.title || key;
+          localStorage.removeItem(key);
+          setStatus(`Deleted "${title}" from browser storage.`);
+        } catch (_) {
+          localStorage.removeItem(key);
+        }
+      }
+
+      function openSavedShowsModal() {
+        const list = document.getElementById("ss-list");
+        const keys = getAllSavedKeys();
+        list.innerHTML = "";
+
+        if (keys.length === 0) {
+          list.innerHTML =
+            '<p style="color:#555570;text-align:center;padding:24px 0;">No saved shows yet.<br><br>Open a show and click 💾 Save to save it here.</p>';
+        } else {
+          for (const key of keys) {
+            try {
+              const data = JSON.parse(localStorage.getItem(key));
+              const savedAt = data.savedAt
+                ? new Date(data.savedAt).toLocaleString()
+                : "Unknown date";
+              const dur = frameToTimestamp(data.duration_frames || 0);
+              const bandLabel = data.band === "munch" ? "MMBB" : "RFE";
+              const item = document.createElement("div");
+              item.className = "ss-item";
+              item.innerHTML = `
+                <div class="ss-item-info">
+                  <span class="ss-item-title">${data.title || "(Untitled)"}</span>
+                  <span class="ss-item-meta">${bandLabel} &middot; ${dur} &middot; Saved ${savedAt}</span>
+                </div>
+                <div class="ss-item-actions">
+                  <button class="tb-btn" data-load="${key}">Open</button>
+                  <button class="tb-btn" style="color:#ff6666;border-color:#ff444433;" data-del="${key}" title="Delete save">✕</button>
+                </div>`;
+              list.appendChild(item);
+            } catch (_) {}
+          }
+        }
+
+        list._ssHandler && list.removeEventListener("click", list._ssHandler);
+        list._ssHandler = (e) => {
+          const loadKey = e.target.closest("[data-load]")?.dataset.load;
+          const delKey = e.target.closest("[data-del]")?.dataset.del;
+          if (loadKey) {
+            loadFromLocalStorage(loadKey);
+            closeSavedShowsModal();
+          }
+          if (delKey) {
+            deleteFromLocalStorage(delKey);
+            openSavedShowsModal();
+          }
+        };
+        list.addEventListener("click", list._ssHandler);
+
+        document.getElementById("saved-shows-overlay").classList.add("open");
+      }
+
+      function closeSavedShowsModal() {
+        document.getElementById("saved-shows-overlay").classList.remove("open");
+      }
+
+      /* ============================================================
    INIT
    ============================================================ */
       document.addEventListener("DOMContentLoaded", () => {
