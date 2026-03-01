@@ -599,20 +599,29 @@
         min-height: 60px;
         padding-right: 4px;
       }
-      #ss-list::-webkit-scrollbar { width: 6px; }
-      #ss-list::-webkit-scrollbar-track { background: #0d0d1a; }
-      #ss-list::-webkit-scrollbar-thumb { background: #2a2a44; border-radius: 3px; }
+      #ss-list::-webkit-scrollbar {
+        width: 6px;
+      }
+      #ss-list::-webkit-scrollbar-track {
+        background: #0d0d1a;
+      }
+      #ss-list::-webkit-scrollbar-thumb {
+        background: #2a2a44;
+        border-radius: 3px;
+      }
       .ss-item {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        background: rgba(255,255,255,0.03);
+        background: rgba(255, 255, 255, 0.03);
         border: 1px solid #2a2a44;
         border-radius: 6px;
         padding: 10px 12px;
       }
-      .ss-item:hover { border-color: #3a3a60; }
+      .ss-item:hover {
+        border-color: #3a3a60;
+      }
       .ss-item-info {
         display: flex;
         flex-direction: column;
@@ -642,6 +651,7 @@
         justify-content: flex-end;
         flex-shrink: 0;
       }
+    </style>
   </head>
   <body>
     <div id="app">
@@ -653,7 +663,14 @@
           </button>
           <label for="json-input" class="tb-btn">📂 Load Show</label>
           <input type="file" id="json-input" accept=".json,.cybershow.json" />
-          <button id="btn-save" class="tb-btn" disabled title="Save to browser local storage (Ctrl+S)">💾 Save</button>
+          <button
+            id="btn-save"
+            class="tb-btn"
+            disabled
+            title="Save to browser local storage (Ctrl+S)"
+          >
+            💾 Save
+          </button>
           <button id="btn-saved-shows" class="tb-btn">📁 Saved Shows</button>
           <label for="wav-input" class="tb-btn">🎵 Load WAV</label>
           <input type="file" id="wav-input" accept=".wav,audio/*" />
@@ -1115,7 +1132,7 @@
         setStatus(
           `New show "${title}" — ${frames} frames (${frameToTimestamp(frames)}). Start drawing signal blocks on the timeline.`,
         );
-        document.getElementById('btn-save').disabled = false;
+        document.getElementById("btn-save").disabled = false;
       }
 
       /* ============================================================
@@ -1183,7 +1200,7 @@
             setStatus(
               `Loaded "${obj.title || file.name}" — ${totalFrames} frames (${frameToTimestamp(totalFrames)}), ${cueCount} signal cues.`,
             );
-            document.getElementById('btn-save').disabled = false;
+            document.getElementById("btn-save").disabled = false;
           } catch (err) {
             setStatus(`✗ ${err.message}`, "#f44");
           }
@@ -2072,12 +2089,21 @@
         elBtnStop.addEventListener("click", () => stopPlayback(true));
         elBtnExport.addEventListener("click", exportJSON);
         elBtnSnap.addEventListener("click", toggleSnap);
-        document.getElementById('btn-save').addEventListener('click', saveToLocalStorage);
-        document.getElementById('btn-saved-shows').addEventListener('click', openSavedShowsModal);
-        document.getElementById('ss-close').addEventListener('click', closeSavedShowsModal);
-        document.getElementById('saved-shows-overlay').addEventListener('click', (e) => {
-          if (e.target === document.getElementById('saved-shows-overlay')) closeSavedShowsModal();
-        });
+        document
+          .getElementById("btn-save")
+          .addEventListener("click", saveToLocalStorage);
+        document
+          .getElementById("btn-saved-shows")
+          .addEventListener("click", openSavedShowsModal);
+        document
+          .getElementById("ss-close")
+          .addEventListener("click", closeSavedShowsModal);
+        document
+          .getElementById("saved-shows-overlay")
+          .addEventListener("click", (e) => {
+            if (e.target === document.getElementById("saved-shows-overlay"))
+              closeSavedShowsModal();
+          });
 
         // Zoom buttons
         document
