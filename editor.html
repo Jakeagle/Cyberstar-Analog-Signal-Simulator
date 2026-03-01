@@ -349,6 +349,21 @@
         cursor: grabbing;
       }
 
+      /* ── DRAG-SELECT RECTANGLE ───────────────────────────────── */
+      #select-rect {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 0;
+        height: 100%;
+        border: 1.5px solid rgba(100, 200, 255, 0.85);
+        background: rgba(100, 200, 255, 0.08);
+        pointer-events: none;
+        display: none;
+        z-index: 12;
+        border-radius: 2px;
+      }
+
       /* ── SNAP LINE ────────────────────────────────────────────── */
       #snap-line {
         position: absolute;
@@ -836,14 +851,19 @@
 
       <!-- ── HELP BAR ── -->
       <div id="help-bar">
-        <span><kbd>Drag</kbd> empty row → create block</span>
-        <span><kbd>Drag</kbd> block → move block</span>
-        <span><kbd>Click</kbd> block → select</span>
+        <span><kbd>Drag</kbd> row → create block</span>
+        <span><kbd>Ctrl+Drag</kbd> → marquee select</span>
+        <span><kbd>Ctrl+Click</kbd> block → add to selection</span>
         <span><kbd>Del</kbd> → remove selected</span>
+        <span
+          ><kbd>Ctrl+C</kbd> copy &ensp; <kbd>Ctrl+V</kbd> paste at playhead
+          &ensp; <kbd>Ctrl+D</kbd> duplicate</span
+        >
         <span><kbd>Click</kbd> ruler → seek</span>
-        <span><kbd>Space</kbd> → play/pause</span>
-        <span><kbd>S</kbd> → toggle snap</span>
-        <span><kbd>Shift</kbd>+drag → bypass snap</span>
+        <span
+          ><kbd>Space</kbd> play/pause &ensp; <kbd>S</kbd> snap &ensp;
+          <kbd>Shift</kbd>+drag bypass snap</span
+        >
       </div>
 
       <!-- ── STATUS BAR ── -->
@@ -914,9 +934,12 @@
       let totalFrames = 9000;
       let rowMeta = []; // [{ charName, movKey, color }] in display order
       let charMeta = []; // [{ charName, color, movKeys[] }] in display order
-      let selectedKey = null; // "charName||movKey||startFrame" or null
+      let selectedKey = null; // "charName||movKey||startFrame" or null (primary selection)
+      let selectedKeys = new Set(); // all currently-selected block keys (multi-select)
+      let clipboard = null; // { blocks:[{charName,movKey,startFrame,endFrame}], anchorFrame }
       let dragState = null; // { charName, movKey, anchorFrame, curFrame }
       let blockMoveState = null; // { charName, movKey, startFrame, endFrame, dur, grabOffset, el, row, mouseDownX, dragging, mode ('move'|'resize-start'|'resize-end'), previewStart, previewEnd }
+      let dragSelectState = null; // { startFrame, curFrame, anchorClientX }
       let snapEnabled = true;
       let rafId = null;
 
@@ -1326,6 +1349,11 @@
             if (e.button !== 0) return;
             e.stopPropagation();
             e.preventDefault();
+            // Ctrl+click → toggle this block in the multi-selection (no drag)
+            if (e.ctrlKey || e.metaKey) {
+              toggleBlockInSelection(key, el);
+              return;
+            }
             selectBlock(key, el);
             const bw = el.offsetWidth;
             const ex = e.offsetX;
@@ -1367,57 +1395,188 @@
       function selectBlock(key, el) {
         clearSelection();
         selectedKey = key;
+        selectedKeys.add(key);
         el.classList.add("selected");
         const [cn, mk, sf] = key.split("||");
         setStatus(
-          `Selected: ${cn} / ${mk.replace(/_/g, " ")} — start frame ${sf} — press Delete to remove`,
+          `Selected: ${cn} / ${mk.replace(/_/g, " ")} — F${sf} — Ctrl+C copy · Ctrl+D duplicate · Del remove`,
         );
+      }
+
+      function toggleBlockInSelection(key, el) {
+        if (selectedKeys.has(key)) {
+          selectedKeys.delete(key);
+          el.classList.remove("selected");
+          if (selectedKey === key)
+            selectedKey = selectedKeys.size > 0 ? [...selectedKeys][0] : null;
+        } else {
+          selectedKeys.add(key);
+          selectedKey = key;
+          el.classList.add("selected");
+        }
+        const n = selectedKeys.size;
+        if (n === 0) {
+          setStatus("No blocks selected.");
+        } else if (n === 1) {
+          const [cn, mk, sf] = [...selectedKeys][0].split("||");
+          setStatus(
+            `Selected: ${cn} / ${mk.replace(/_/g, " ")} — F${sf} — Ctrl+C copy · Del remove`,
+          );
+        } else {
+          setStatus(
+            `${n} blocks selected — Ctrl+C copy, Ctrl+D duplicate, Del delete all.`,
+          );
+        }
       }
 
       function clearSelection() {
         selectedKey = null;
+        selectedKeys.clear();
         for (const b of elTracks.querySelectorAll(".signal-block.selected")) {
           b.classList.remove("selected");
         }
       }
 
       function deleteSelected() {
-        if (!selectedKey) return;
-        const [charName, movKey, sfStr] = selectedKey.split("||");
-        const startFrame = parseInt(sfStr, 10);
-        const sigs = showData?.characters?.[charName]?.signals;
-        if (!sigs) return;
-
-        // Find ON at startFrame and its matching OFF (first OFF after it for same movement)
-        let onIdx = -1,
-          offIdx = -1;
-        for (let i = 0; i < sigs.length; i++) {
-          if (
-            sigs[i].movement === movKey &&
-            sigs[i].state === true &&
-            sigs[i].frame === startFrame
-          )
-            onIdx = i;
-        }
-        if (onIdx >= 0) {
-          for (let i = onIdx + 1; i < sigs.length; i++) {
-            if (sigs[i].movement === movKey && sigs[i].state === false) {
-              offIdx = i;
-              break;
+        if (selectedKeys.size === 0) return;
+        const toDelete = [...selectedKeys].map((k) => {
+          const [charName, movKey, sfStr] = k.split("||");
+          return { charName, movKey, startFrame: parseInt(sfStr, 10) };
+        });
+        const affectedRows = new Set();
+        for (const { charName, movKey, startFrame } of toDelete) {
+          const sigs = showData?.characters?.[charName]?.signals;
+          if (!sigs) continue;
+          let onIdx = -1,
+            offIdx = -1;
+          for (let i = 0; i < sigs.length; i++) {
+            if (
+              sigs[i].movement === movKey &&
+              sigs[i].state === true &&
+              sigs[i].frame === startFrame
+            )
+              onIdx = i;
+          }
+          if (onIdx >= 0) {
+            for (let i = onIdx + 1; i < sigs.length; i++) {
+              if (sigs[i].movement === movKey && sigs[i].state === false) {
+                offIdx = i;
+                break;
+              }
             }
           }
+          const toRemove = [onIdx, offIdx]
+            .filter((i) => i >= 0)
+            .sort((a, b) => b - a);
+          for (const idx of toRemove) sigs.splice(idx, 1);
+          affectedRows.add(`${charName}||${movKey}`);
         }
-
-        const toRemove = [onIdx, offIdx]
-          .filter((i) => i >= 0)
-          .sort((a, b) => b - a);
-        for (const idx of toRemove) sigs.splice(idx, 1);
-
+        const n = toDelete.length;
         clearSelection();
-        refreshRow(charName, movKey);
+        for (const rowKey of affectedRows) {
+          const [cn, mk] = rowKey.split("||");
+          refreshRow(cn, mk);
+        }
+        setStatus(`Removed ${n} block${n === 1 ? "" : "s"}.`);
+      }
+
+      /* ============================================================
+   COPY / PASTE
+   ============================================================ */
+      function getSelectedBlocks() {
+        const result = [];
+        for (const key of selectedKeys) {
+          const [charName, movKey, sfStr] = key.split("||");
+          const startFrame = parseInt(sfStr, 10);
+          const blk = getBlocks(charName, movKey).find(
+            (b) => b.startFrame === startFrame,
+          );
+          if (blk)
+            result.push({
+              charName,
+              movKey,
+              startFrame: blk.startFrame,
+              endFrame: blk.endFrame,
+            });
+        }
+        return result;
+      }
+
+      function copySelected() {
+        const blocks = getSelectedBlocks();
+        if (blocks.length === 0) {
+          setStatus("Nothing selected to copy.", "#fa0");
+          return;
+        }
+        const anchorFrame = Math.min(...blocks.map((b) => b.startFrame));
+        clipboard = { blocks, anchorFrame };
         setStatus(
-          `Removed block: ${charName} / ${movKey.replace(/_/g, " ")} at F${startFrame}`,
+          `Copied ${blocks.length} block${blocks.length === 1 ? "" : "s"} — Ctrl+V to paste at playhead (F${curFrame}).`,
         );
+      }
+
+      function pasteClipboard() {
+        if (!clipboard || !showData) {
+          setStatus("Nothing to paste.", "#fa0");
+          return;
+        }
+        const offset = curFrame - clipboard.anchorFrame;
+        const placed = [];
+        const skipped = [];
+        for (const blk of clipboard.blocks) {
+          const newStart = Math.max(0, blk.startFrame + offset);
+          const newEnd = Math.min(totalFrames, blk.endFrame + offset);
+          if (newEnd - newStart < 1) {
+            skipped.push(blk);
+            continue;
+          }
+          const overlaps = getBlocks(blk.charName, blk.movKey).some(
+            (b) => newStart < b.endFrame && newEnd > b.startFrame,
+          );
+          if (overlaps) {
+            skipped.push(blk);
+            continue;
+          }
+          commitInsert(blk.charName, blk.movKey, newStart, newEnd);
+          placed.push(`${blk.charName}||${blk.movKey}||${newStart}`);
+        }
+        if (placed.length === 0) {
+          setStatus("⚠ Paste: all blocks overlap existing signals.", "#fa0");
+          return;
+        }
+        clearSelection();
+        for (const k of placed) {
+          selectedKeys.add(k);
+          selectedKey = k;
+          const el = elTracks.querySelector(
+            `.signal-block[data-key="${CSS.escape(k)}"]`,
+          );
+          if (el) el.classList.add("selected");
+        }
+        const msg = skipped.length
+          ? `Pasted ${placed.length} block${placed.length === 1 ? "" : "s"} (${skipped.length} skipped — overlap).`
+          : `Pasted ${placed.length} block${placed.length === 1 ? "" : "s"} at F${curFrame}.`;
+        setStatus(msg);
+      }
+
+      /* ============================================================
+   DRAG-SELECT RECT
+   ============================================================ */
+      function updateSelectRect(startFrame, endFrame) {
+        const elRect = document.getElementById("select-rect");
+        if (!elRect) return;
+        const x1 = frameToX(Math.min(startFrame, endFrame));
+        const x2 = frameToX(Math.max(startFrame, endFrame));
+        elRect.style.display = "block";
+        elRect.style.left = x1 + "px";
+        elRect.style.width = Math.max(2, x2 - x1) + "px";
+        elRect.style.height =
+          Math.max(elTracks.scrollHeight, elTimelineWrap.clientHeight) + "px";
+      }
+
+      function hideSelectRect() {
+        const elRect = document.getElementById("select-rect");
+        if (elRect) elRect.style.display = "none";
       }
 
       /* ============================================================
@@ -1430,8 +1589,21 @@
         const movKey = row.dataset.mov;
         const rect = row.getBoundingClientRect();
         const rawX = e.clientX - rect.left + elTimelineWrap.scrollLeft;
-        const frame = snapFrame(xToFrame(rawX), e.shiftKey, charName, movKey);
 
+        // ── Ctrl+drag → marquee selection ──────────────────────────────────
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          const frame = xToFrame(rawX);
+          dragSelectState = {
+            startFrame: frame,
+            curFrame: frame,
+            anchorClientX: e.clientX,
+          };
+          updateSelectRect(frame, frame);
+          return;
+        }
+
+        const frame = snapFrame(xToFrame(rawX), e.shiftKey, charName, movKey);
         clearSelection();
         dragState = {
           charName,
@@ -1559,6 +1731,18 @@
           return;
         }
 
+        /* ── Marquee drag-select ── */
+        if (dragSelectState) {
+          const tracksRect = elTracks.getBoundingClientRect();
+          const rawX = e.clientX - tracksRect.left + elTimelineWrap.scrollLeft;
+          dragSelectState.curFrame = xToFrame(rawX);
+          updateSelectRect(
+            dragSelectState.startFrame,
+            dragSelectState.curFrame,
+          );
+          return;
+        }
+
         /* ── New-block creation drag ── */
         if (!dragState) return;
         const row = dragState.row;
@@ -1621,6 +1805,39 @@
             } else {
               refreshRow(bm.charName, bm.movKey); // re-render to remove dragging class
             }
+          }
+          return;
+        }
+
+        /* ── Marquee drag-select end ── */
+        if (dragSelectState) {
+          const ds = dragSelectState;
+          dragSelectState = null;
+          hideSelectRect();
+          const frameA = Math.min(ds.startFrame, ds.curFrame);
+          const frameB = Math.max(ds.startFrame, ds.curFrame);
+          if (frameB - frameA >= 1) {
+            clearSelection();
+            let count = 0;
+            for (const { charName, movKey } of rowMeta) {
+              for (const blk of getBlocks(charName, movKey)) {
+                if (blk.startFrame < frameB && blk.endFrame > frameA) {
+                  const k = `${charName}||${movKey}||${blk.startFrame}`;
+                  selectedKeys.add(k);
+                  selectedKey = k;
+                  count++;
+                  const el = elTracks.querySelector(
+                    `.signal-block[data-key="${CSS.escape(k)}"]`,
+                  );
+                  if (el) el.classList.add("selected");
+                }
+              }
+            }
+            setStatus(
+              count === 0
+                ? "Drag-select: no blocks in range."
+                : `Selected ${count} block${count === 1 ? "" : "s"} — Ctrl+C copy, Ctrl+D duplicate, Del delete.`,
+            );
           }
           return;
         }
@@ -2310,10 +2527,27 @@
           if (e.code === "Equal" || e.code === "NumpadAdd") applyZoom(zoom + 1);
           if (e.code === "Minus" || e.code === "NumpadSubtract")
             applyZoom(zoom - 1);
-          if (e.code === "KeyS") toggleSnap();
+          if (e.code === "KeyS" && !e.ctrlKey && !e.metaKey) toggleSnap();
           if ((e.ctrlKey || e.metaKey) && e.code === "KeyS") {
             e.preventDefault();
             saveToLocalStorage();
+          }
+          if ((e.ctrlKey || e.metaKey) && e.code === "KeyC") {
+            e.preventDefault();
+            copySelected();
+          }
+          if ((e.ctrlKey || e.metaKey) && e.code === "KeyV") {
+            e.preventDefault();
+            pasteClipboard();
+          }
+          if ((e.ctrlKey || e.metaKey) && e.code === "KeyD") {
+            e.preventDefault();
+            copySelected();
+            pasteClipboard();
+          }
+          if (e.code === "Escape") {
+            clearSelection();
+            setStatus("Selection cleared.");
           }
         });
       });
