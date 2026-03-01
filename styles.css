@@ -1513,6 +1513,15 @@ h1 {
   background: rgba(60, 160, 255, 0.28);
   border-color: rgba(80, 180, 255, 0.7);
 }
+.sviz-export-btn-rshw {
+  background: rgba(180, 60, 220, 0.18);
+  border: 1px solid rgba(200, 100, 255, 0.45);
+  color: #ddb8ff;
+}
+.sviz-export-btn-rshw:hover {
+  background: rgba(200, 100, 255, 0.28);
+  border-color: rgba(220, 140, 255, 0.7);
+}
 
 /* Channel activity grid */
 .sviz-channel-grid {

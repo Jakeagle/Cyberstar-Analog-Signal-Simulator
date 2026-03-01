@@ -74,8 +74,20 @@
             >
               🎚️ Export 4-ch WAV
             </button>
+            <button
+              id="export-cso-btn"
+              class="btn"
+              title="Export a .cso Cyberstar Show Object for RR-Engine (requires 4-ch WAV to be exported first)"
+              onclick="exportCsoFromCurrentShow()"
+            >
+              🎮 Export as CSO
+            </button>
             <span
               id="export-wav-status"
+              style="font-size: 0.82em; opacity: 0.75; margin-left: 8px"
+            ></span>
+            <span
+              id="cso-export-status"
               style="font-size: 0.82em; opacity: 0.75; margin-left: 8px"
             ></span>
           </div>
@@ -243,6 +255,7 @@
             verified against hardware specifications before playback is enabled.
           </p>
 
+          <!-- Upload row -->
           <div class="builder-row">
             <button id="sviz-upload-btn" class="btn btn-primary">
               📂 Load CSO WAV
@@ -254,48 +267,50 @@
               style="display: none"
             />
             <span id="sviz-file-name" class="file-name-display"
-              <!-- Helper Download Modal -->
-              <div id="helper-download-modal" class="py-modal-overlay" hidden>
-                <div class="py-modal-box">
-                  <div class="modal-header">
-                    <h3>Download & Run Helper</h3>
-                    <button id="helper-download-close" class="close-btn">&times;</button>
-                  </div>
-                  <div class="py-modal-msg" style="text-align: left">
-                    <p>
-                      Recommended: download the prebuilt Windows helper to produce a
-                      RR-Engine-compatible <code>.rshw</code> with one simple command.
-                    </p>
-                    <p><strong>Download (Windows x64)</strong></p>
-                    <p>
-                      <a id="helper-exe-link" href="tools/dist/rshw_helper_win_x64.zip" download>Download prebuilt helper (tools/dist/rshw_helper_win_x64.zip)</a>
-                    </p>
-                    <p><strong>One-step convert (recommended)</strong></p>
-                    <pre><code>Expand-Archive tools\dist\rshw_helper_win_x64.zip -DestinationPath tools\dist\rshw_helper_win_x64
-ntools\dist\rshw_helper_win_x64\rshw_serializer.exe --wav input.wav --signals signals.json --out output.rshw</code></pre>
-                    <p><strong>Convenience wrappers</strong></p>
-                    <pre><code>tools\convert_with_exe.bat input.wav    # Windows CMD
-              >
-                    <p>
-                      The wrappers will generate the required <code>signals.json</code>
-                      (using the included Python helper) and invoke the EXE — so you
-                      can run one command to get <code>output.rshw</code>.
-                    </p>
-                    <hr />
-                    <p><strong>Alternative: Python bridge (fallback)</strong></p>
-                    <p>
-                      Use the local Python bridge or GUI only if you prefer a server
-                      workflow or are on a non-Windows OS. The EXE path is the simplest
-                      and recommended for Windows users.
-                    </p>
-                    <div style="margin-top: 10px">
-                      <button id="helper-started-btn" class="btn btn-primary">I've started the helper</button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-                ⬇ Download Helper
-              </button>
+              >No file chosen</span
+            >
+          </div>
+
+          <!-- Status -->
+          <div id="sviz-status" class="sviz-status sviz-status-info"></div>
+
+          <!-- Stats bar -->
+          <div id="sviz-stats" class="sviz-stats"></div>
+
+          <!-- Verify panel -->
+          <div
+            id="sviz-verify-panel"
+            class="sviz-verify-panel"
+            style="display: none"
+          >
+            <div id="sviz-verdict" class="sviz-verdict"></div>
+            <ul id="sviz-reasons" class="sviz-reasons"></ul>
+          </div>
+
+          <!-- Disclaimer -->
+          <p id="sviz-disclaimer" class="sviz-disclaimer" style="display: none">
+            ⚠️ Audio playback is a browser representation only. The browser
+            resamples to its hardware rate (typically 48 kHz). Signal timing
+            derived from BMC decode is accurate; audio fidelity is not
+            guaranteed.
+          </p>
+
+          <!-- Player panel -->
+          <div
+            id="sviz-player-panel"
+            class="sviz-player-panel"
+            style="display: none"
+          >
+            <canvas
+              id="sviz-waveform"
+              class="sviz-waveform"
+              height="60"
+            ></canvas>
+            <div class="sviz-player-controls">
+              <button id="sviz-play-btn" class="btn btn-primary">▶ Play</button>
+              <button id="sviz-pause-btn" class="btn" disabled>⏸ Pause</button>
+              <button id="sviz-stop-btn" class="btn">⏹ Stop</button>
+              <button id="sviz-stage-btn" class="btn">🎭 Stage View</button>
               <input
                 id="sviz-progress"
                 type="range"
@@ -306,18 +321,26 @@ ntools\dist\rshw_helper_win_x64\rshw_serializer.exe --wav input.wav --signals si
               />
               <span id="sviz-time" class="sviz-time">00:00 / 00:00</span>
             </div>
-            <div class="sviz-export-row">
-              <span class="sviz-export-label">💾 Export:</span>
-              <button id="sviz-export-wav-btn" class="btn sviz-export-btn">
-                🔊 4-Channel WAV
-              </button>
-              <button
-                id="sviz-export-cso-btn"
-                class="btn sviz-export-btn sviz-export-btn-cso"
-              >
-                📶 4-Channel .CSO
-              </button>
-            </div>
+          </div>
+
+          <!-- Export row -->
+          <div class="sviz-export-row">
+            <span class="sviz-export-label">💾 Export:</span>
+            <button id="sviz-export-wav-btn" class="btn sviz-export-btn">
+              🔊 4-Channel WAV
+            </button>
+            <button
+              id="sviz-export-cso-btn"
+              class="btn sviz-export-btn sviz-export-btn-cso"
+            >
+              📶 4-Channel .CSO
+            </button>
+            <button
+              id="sviz-export-rshw-btn"
+              class="btn sviz-export-btn sviz-export-btn-rshw"
+            >
+              📼 Export .rshw
+            </button>
           </div>
         </section>
       </main>
@@ -354,113 +377,12 @@ ntools\dist\rshw_helper_win_x64\rshw_serializer.exe --wav input.wav --signals si
       </div>
     </div>
 
-    <!-- Bridge Setup Help Modal -->
-    <div id="bridge-help-modal" class="py-modal-overlay" hidden>
-      <div class="py-modal-box">
-        <div class="modal-header">
-          <h3>Setup Help — Local Python Bridge</h3>
-          <button id="bridge-help-close" class="close-btn">&times;</button>
-        </div>
-        <div class="py-modal-msg" style="text-align: left">
-          <p>
-            If Pyodide fails in your browser you can run a local Python bridge
-            to convert WAV → .rshw.
-          </p>
-          <p>Steps (Windows PowerShell):</p>
-          <pre><code>python -m venv .venv
-source .venv/Scripts/activate
-pip install -r tools/requirements.txt
-python tools/py_bridge_server.py</code></pre>
-          <p>Steps (macOS / Linux):</p>
-          <pre><code>python3 -m venv .venv
-source .venv/bin/activate
-pip install -r tools/requirements.txt
-python tools/py_bridge_server.py</code></pre>
-          <p>
-            Optional: for best compatibility, install .NET SDK so the returned
-            .rshw uses the exact BinaryFormatter serialization:
-          </p>
-          <pre><code>choco install dotnet-sdk -y  # Windows (chocolatey)
-brew install --cask dotnet-sdk # macOS (Homebrew)
-sudo apt install dotnet-sdk-7.0   # Debian/Ubuntu (apt)
-dotnet --version</code></pre>
-          <p>
-            After starting the bridge, click <strong>Check Bridge</strong> and
-            then <strong>Convert to SPTE rshw</strong>.
-          </p>
-        </div>
-      </div>
-    </div>
-
-    <!-- Helper Download Modal -->
-    <div id="helper-download-modal" class="py-modal-overlay" hidden>
-      <div class="py-modal-box">
-        <div class="modal-header">
-          <h3>Download & Run Helper</h3>
-          <button id="helper-download-close" class="close-btn">&times;</button>
-        </div>
-        <div class="py-modal-msg" style="text-align: left">
-          <p>
-            The simplest, fastest helper is a small Python script you can run
-            locally — no .NET required. It starts a local HTTP server that the
-            web UI will talk to for WAV → .rshw conversion.
-          </p>
-          <p><strong>Option A — Python helper (recommended)</strong></p>
-          <p>
-            <a id="helper-python-link" href="tools/py_bridge_server.py" download
-              >Download the Python helper script</a
-            >
-            <br />
-            <small
-              >If you don't have Python installed, get it from
-              <a href="https://www.python.org/downloads/" target="_blank"
-                >python.org</a
-              >. Double-clicking the .py file will not run it — use the terminal
-              or the included runner scripts.</small
-            >
-          </p>
-          <p>Quick run (Windows):</p>
-          <pre><code>python -m venv .venv
-.venv\Scripts\activate
-pip install -r tools/requirements.txt
-python tools/py_bridge_server.py</code></pre>
-          <p>Quick run (macOS / Linux):</p>
-          <pre><code>python3 -m venv .venv
-source .venv/bin/activate
-pip install -r tools/requirements.txt
-python tools/py_bridge_server.py</code></pre>
-          <p>
-            The server listens on <code>http://127.0.0.1:5000</code>. After you
-            start it, click <strong>Check Bridge</strong> and then
-            <strong>Convert to SPTE rshw</strong>.
-          </p>
-          <hr />
-          <p><strong>Option B — .NET helper (optional)</strong></p>
-          <p>Use this only if you want the BinaryFormatter-serialized .rshw.</p>
-          <pre><code>dotnet publish tools/rshw_serializer -c Release -r win-x64 /p:PublishSingleFile=true -o dist</code></pre>
-          <p>
-            Double-click the produced executable in <code>dist\</code> to run
-            it. It will listen on <code>http://127.0.0.1:5000</code>.
-          </p>
-          <p style="margin-top: 8px">
-            After starting the helper, click
-            <strong>I've started the helper</strong> below and the app will
-            resume the pending conversion (if any).
-          </p>
-          <div style="margin-top: 10px">
-            <button id="helper-started-btn" class="btn btn-primary">
-              I've started the helper
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <script src="cyberstar-signals.js"></script>
     <script src="character-movements.js"></script>
     <script src="showtapes.js"></script>
     <script src="show-builder.js"></script>
     <script src="app.js"></script>
     <script src="signal-visualizer.js"></script>
+    <script src="cso-exporter.js"></script>
   </body>
 </html>

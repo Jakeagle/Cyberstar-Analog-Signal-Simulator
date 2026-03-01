@@ -549,9 +549,6 @@
           <input type="file" id="json-input" accept=".json,.cybershow.json" />
           <label for="wav-input" class="tb-btn">🎵 Load WAV</label>
           <input type="file" id="wav-input" accept=".wav,audio/*" />
-          <button id="btn-export-rshw" class="tb-btn tb-btn-green" disabled>
-            ⬇ Convert to SPTE rshw
-          </button>
         </div>
 
         <div class="tb-title">
@@ -1257,17 +1254,23 @@
       }
 
       /* ============================================================
-   RULER
+   RULER  (windowed – canvas is only viewport-wide to avoid the
+           ~65 535 px browser canvas hardware limit)
    ============================================================ */
       function drawRuler() {
         const canvas = elRulerCanvas;
-        const totalW = frameToX(totalFrames) + 300;
-        canvas.width = totalW;
+
+        // Width = visible viewport only; full timeline width lives in
+        // elTracks.style.width so the scrollbar stays correct.
+        const viewW = Math.max(100, elTimelineWrap.clientWidth || 800);
+        const scrollX = elTimelineWrap.scrollLeft || 0;
+
+        canvas.width = viewW; // safe — never exceeds screen width
         canvas.height = RULER_H;
         const ctx = canvas.getContext("2d");
 
         ctx.fillStyle = "#111122";
-        ctx.fillRect(0, 0, totalW, RULER_H);
+        ctx.fillRect(0, 0, viewW, RULER_H);
 
         // Choose a nice tick interval so major ticks are ~80–200px apart
         const pxPerSec = zoom * FPS;
@@ -1277,9 +1280,20 @@
         const majorF = Math.round(majorSec * FPS);
         const minorF = Math.max(1, Math.round(minorSec * FPS));
 
+        // Only iterate over frames that are actually visible
+        const firstVisF = Math.max(
+          0,
+          Math.floor(xToFrame(scrollX) / minorF) * minorF - minorF,
+        );
+        const lastVisF = Math.min(
+          totalFrames + majorF,
+          Math.ceil(xToFrame(scrollX + viewW) / minorF) * minorF + minorF,
+        );
+
         ctx.lineWidth = 1;
-        for (let f = 0; f <= totalFrames + majorF; f += minorF) {
-          const x = frameToX(f) + 0.5;
+        for (let f = firstVisF; f <= lastVisF; f += minorF) {
+          // Offset by scrollX so ticks land at the correct visual position
+          const x = frameToX(f) - scrollX + 0.5;
           const isMajor = f % majorF === 0;
 
           ctx.strokeStyle = isMajor ? "#4a4a6a" : "#252538";
@@ -1302,12 +1316,12 @@
           }
         }
 
-        // Bottom edge line
+        // Bottom edge line (spans the viewport, not the whole timeline)
         ctx.strokeStyle = "#22223a";
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(0, RULER_H - 0.5);
-        ctx.lineTo(totalW, RULER_H - 0.5);
+        ctx.lineTo(viewW, RULER_H - 0.5);
         ctx.stroke();
       }
 
@@ -1585,16 +1599,22 @@
           { passive: false },
         );
 
-        // Sync label panel vertical scroll with timeline vertical scroll
+        // Sync label panel vertical scroll with timeline vertical scroll;
+        // also redraw the windowed ruler as horizontal scroll position changes.
         elTimelineWrap.addEventListener("scroll", () => {
           elLabelScroll.scrollTop = elTimelineWrap.scrollTop;
+          drawRuler();
         });
+
+        // Redraw ruler when the window is resized (viewport width changes).
+        window.addEventListener("resize", () => drawRuler());
 
         // Ruler click → seek
         elRulerCanvas.addEventListener("click", (e) => {
           if (!showData) return;
-          // e.offsetX is relative to canvas left edge (which scrolls horizontally with the content)
-          const frame = xToFrame(e.offsetX);
+          // Canvas is now viewport-wide (windowed), so add scrollLeft to
+          // convert the click's canvas-local X into timeline X.
+          const frame = xToFrame(e.offsetX + elTimelineWrap.scrollLeft);
           seekToFrame(frame);
           // scroll playhead into view if needed
           elTimelineWrap.scrollLeft = Math.max(

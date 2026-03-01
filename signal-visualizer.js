@@ -37,6 +37,7 @@
   const statsEl = document.getElementById("sviz-stats");
   const exportWavBtn = document.getElementById("sviz-export-wav-btn");
   const exportCsoBtn = document.getElementById("sviz-export-cso-btn");
+  const exportRshwBtn = document.getElementById("sviz-export-rshw-btn");
 
   // ── State ────────────────────────────────────────────────────────────────
   let audioCtx = null;
@@ -51,6 +52,8 @@
   let waveformImageData = null; // cached static waveform
   let pyodideReady = false;
   let pyodideLoading = false;
+  let rawWavBytes = null; // Uint8Array of the original WAV file — used for .rshw export
+  let rshwBuilderLoaded = false; // true once rshw_builder.py has been run in Pyodide
 
   // ── Utility ──────────────────────────────────────────────────────────────
   function fmt(s) {
@@ -60,15 +63,47 @@
   }
 
   function setStatus(msg, type = "info") {
+    if (!statusEl) return;
     statusEl.textContent = msg;
     statusEl.className = "sviz-status sviz-status-" + type;
   }
 
+  // ── Loading modal controller ──────────────────────────────────────────────
+  // Wires into the pre-existing #py-modal overlay in index.html.
+  // show(title, msg, pct)  — display or update; pct is 0-100
+  // step(msg, pct)         — update message + bar while modal is visible
+  // hide()                 — dismiss
+  const _modal = {
+    _el: document.getElementById("py-modal"),
+    _title: document.getElementById("py-modal-title"),
+    _msg: document.getElementById("py-modal-msg"),
+    _bar: document.getElementById("py-modal-bar"),
+    show(title, msg, pct = 0) {
+      if (this._title) this._title.textContent = title;
+      if (this._msg) this._msg.textContent = msg;
+      if (this._bar) this._bar.style.width = `${pct}%`;
+      if (this._el) {
+        this._el.removeAttribute("hidden");
+        this._el.classList.add("py-modal-visible");
+      }
+    },
+    step(msg, pct) {
+      if (this._msg) this._msg.textContent = msg;
+      if (this._bar) this._bar.style.width = `${pct}%`;
+    },
+    hide() {
+      if (this._el) {
+        this._el.classList.remove("py-modal-visible");
+        this._el.setAttribute("hidden", "");
+      }
+    },
+  };
+
   function showPanel(el) {
-    el.style.display = "block";
+    if (el) el.style.display = "block";
   }
   function hidePanel(el) {
-    el.style.display = "none";
+    if (el) el.style.display = "none";
   }
 
   // ── Stage map: channelName → {charName, moveKey} ─────────────────────────
@@ -137,19 +172,24 @@
   }
 
   // ── Pyodide bootstrap ────────────────────────────────────────────────────
-  async function ensurePyodide() {
+  async function ensurePyodide(modalTitle = "Loading Python Runtime") {
     if (pyodideReady) return window._svizPyodide;
     if (pyodideLoading) {
-      // Wait for existing load
+      // Another call is already loading — wait without reopening the modal
       while (!pyodideReady) await new Promise((r) => setTimeout(r, 100));
       return window._svizPyodide;
     }
     pyodideLoading = true;
-    setStatus("Loading Python runtime...", "info");
+    setStatus("Loading Python runtime…", "info");
+    _modal.show(
+      modalTitle,
+      "Downloading Python WebAssembly runtime (~30 MB)…",
+      5,
+    );
 
     if (!window._svizPyodide) {
-      // Load Pyodide if not already loaded by another module
       if (typeof loadPyodide === "undefined") {
+        _modal.step("Fetching Pyodide script…", 8);
         await new Promise((resolve, reject) => {
           const s = document.createElement("script");
           s.src = "https://cdn.jsdelivr.net/pyodide/v0.27.0/full/pyodide.js";
@@ -158,12 +198,14 @@
           document.head.appendChild(s);
         });
       }
+      _modal.step("Initialising Python WebAssembly VM…", 20);
       window._svizPyodide = await loadPyodide();
     }
 
-    // Load the bridge source
+    _modal.step("Loading signal analysis bridge…", 40);
     const res = await fetch("SCME/SViz/visualizer_bridge.py");
     const src = await res.text();
+    _modal.step("Compiling signal analysis module…", 55);
     await window._svizPyodide.runPythonAsync(src);
 
     pyodideReady = true;
@@ -191,29 +233,31 @@
     hidePanel(verifyPanel);
     hidePanel(playerPanel);
     hidePanel(disclaimerEl);
-    statsEl.textContent = "";
+    if (statsEl) statsEl.textContent = "";
     stopPlayback();
     waveformImageData = null;
 
-    setStatus("Reading file...", "info");
+    setStatus("Reading file…", "info");
+    _modal.show("Analysing CSO File", "Reading file from disk…", 5);
 
     let arrayBuffer;
     try {
       arrayBuffer = await file.arrayBuffer();
+      rawWavBytes = new Uint8Array(arrayBuffer.slice(0));
     } catch (err) {
+      _modal.hide();
       setStatus("Failed to read file: " + err.message, "error");
       return;
     }
 
-    // Decode via Web Audio API — handles all WAV formats including 4-ch
-    // AudioContext is created on play (user gesture) to avoid auto-suspend;
-    // here we just need a temporary one for decodeAudioData.
+    _modal.step("Decoding audio (Web Audio API)…", 15);
+    setStatus("Decoding audio…", "info");
     const _decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
-    setStatus("Decoding audio...", "info");
     try {
       audioBuffer = await _decodeCtx.decodeAudioData(arrayBuffer.slice(0));
       await _decodeCtx.close();
     } catch (err) {
+      _modal.hide();
       setStatus(
         "Could not decode WAV: " +
           err.message +
@@ -225,28 +269,28 @@
 
     const nCh = audioBuffer.numberOfChannels;
     if (nCh !== 4 && nCh !== 2) {
+      _modal.hide();
       setStatus(`Expected 4-channel CSO WAV, got ${nCh} channels.`, "error");
       return;
     }
 
-    // Select TD and BD channel indices
     const tdIdx = nCh === 4 ? 2 : 0;
     const bdIdx = nCh === 4 ? 3 : 1;
 
-    setStatus("Running hardware verification...", "info");
+    _modal.step("Rendering waveform…", 25);
+    setStatus("Running hardware verification…", "info");
     drawWaveform(audioBuffer, tdIdx, bdIdx);
 
-    // Pull Int16 samples for the control tracks
     const tdInt16 = float32ToInt16Array(audioBuffer.getChannelData(tdIdx));
     const bdInt16 = float32ToInt16Array(audioBuffer.getChannelData(bdIdx));
     const sr = audioBuffer.sampleRate;
 
-    // Run Python verification
     let result;
     try {
-      const py = await ensurePyodide();
-      buildStageMap(py); // idempotent — no-op on second call
-      // Transfer typed arrays to Python
+      // ensurePyodide updates modal to ~55% internally when loading for first time
+      const py = await ensurePyodide("Analysing CSO File");
+      buildStageMap(py);
+      _modal.step("Transferring signal data to Python…", 65);
       py.globals.set(
         "_td",
         tdInt16.tolist ? tdInt16.tolist() : Array.from(tdInt16),
@@ -256,14 +300,22 @@
         bdInt16.tolist ? bdInt16.tolist() : Array.from(bdInt16),
       );
       py.globals.set("_sr", sr);
-      const jsonStr = py.runPython(
+      _modal.step("Decoding BMC signals & verifying hardware timing…", 75);
+      const jsonStr = await py.runPythonAsync(
         "verify_and_decode_json(list(_td), list(_bd), int(_sr))",
       );
+      _modal.step("Parsing results…", 95);
       result = JSON.parse(jsonStr);
     } catch (err) {
+      _modal.hide();
       setStatus("Python verification failed: " + err.message, "error");
       return;
     }
+
+    _modal.step("Complete.", 100);
+    // Small pause so the user sees 100% before the modal closes
+    await new Promise((r) => setTimeout(r, 300));
+    _modal.hide();
 
     displayResult(result, file.name, nCh);
   });
@@ -277,18 +329,21 @@
     const tdR = result.td;
     const bdR = result.bd;
 
-    statsEl.innerHTML =
-      `<span>Duration: <b>${fmt(dur)}</b></span> &nbsp;|&nbsp; ` +
-      `<span>SR: <b>${result.sample_rate} Hz</b></span> &nbsp;|&nbsp; ` +
-      `<span>TD frames: <b>${tdR.frame_count.toLocaleString()}</b></span> &nbsp;|&nbsp; ` +
-      `<span>BD frames: <b>${bdR.frame_count.toLocaleString()}</b></span> &nbsp;|&nbsp; ` +
-      `<span>Events decoded: <b>${channelTimeline.length.toLocaleString()}</b></span>`;
+    if (statsEl)
+      statsEl.innerHTML =
+        `<span>Duration: <b>${fmt(dur)}</b></span> &nbsp;|&nbsp; ` +
+        `<span>SR: <b>${result.sample_rate} Hz</b></span> &nbsp;|&nbsp; ` +
+        `<span>TD frames: <b>${tdR.frame_count.toLocaleString()}</b></span> &nbsp;|&nbsp; ` +
+        `<span>BD frames: <b>${bdR.frame_count.toLocaleString()}</b></span> &nbsp;|&nbsp; ` +
+        `<span>Events decoded: <b>${channelTimeline.length.toLocaleString()}</b></span>`;
 
     if (result.verdict === "PASS") {
-      verdictEl.textContent =
-        "✅ HARDWARE VERIFIED — Signal will play on Cyberstar";
-      verdictEl.className = "sviz-verdict sviz-verdict-pass";
-      reasonsEl.innerHTML = "";
+      if (verdictEl) {
+        verdictEl.textContent =
+          "✅ HARDWARE VERIFIED — Signal will play on Cyberstar";
+        verdictEl.className = "sviz-verdict sviz-verdict-pass";
+      }
+      if (reasonsEl) reasonsEl.innerHTML = "";
 
       console.log("[SViz] channelTimeline length:", channelTimeline.length);
       console.log("[SViz] stageMap size:", stageMap ? stageMap.size : "null");
@@ -311,10 +366,15 @@
 
       setStatus("Verified. Ready to play.", "success");
     } else {
-      verdictEl.textContent =
-        "❌ VERIFICATION FAILED — This file would be rejected by Cyberstar hardware";
-      verdictEl.className = "sviz-verdict sviz-verdict-fail";
-      reasonsEl.innerHTML = result.reasons.map((r) => `<li>${r}</li>`).join("");
+      if (verdictEl) {
+        verdictEl.textContent =
+          "❌ VERIFICATION FAILED — This file would be rejected by Cyberstar hardware";
+        verdictEl.className = "sviz-verdict sviz-verdict-fail";
+      }
+      if (reasonsEl)
+        reasonsEl.innerHTML = result.reasons
+          .map((r) => `<li>${r}</li>`)
+          .join("");
       setStatus(
         "File failed hardware verification. See reasons above.",
         "error",
@@ -425,6 +485,104 @@
     const chIndices = audioBuffer.numberOfChannels >= 4 ? [0, 1, 2, 3] : [0, 1]; // graceful fallback for 2-ch files
     exportAudioBuffer(audioBuffer, chIndices, `${baseName}.cso`);
   });
+
+  // ── .rshw export ─────────────────────────────────────────────────────────
+  // Converts the loaded 4-channel WAV to a .rshw showtape using Pyodide.
+  // The Python module (SCME/SGM/rshw_builder.py) is fetched and run once,
+  // then calls convert_4ch_wav_to_rshw(wav_bytes) → .rshw bytes.
+  //
+  // .rshw format (RR-Engine / SPTE):
+  //   .NET BinaryFormatter NRBF-serialized rshwFormat object.
+  //   audioData  = stereo WAV (Ch0+Ch1 from the 4ch WAV)
+  //   signalData = per-frame animatronic bits at 60 fps, derived from
+  //                BMC-decoded Ch2 (TD) and Ch3 (BD) signal tracks.
+  //
+  async function exportRshw() {
+    if (!rawWavBytes) {
+      setStatus("No WAV loaded. Load a 4-channel WAV first.", "error");
+      return;
+    }
+    if (audioBuffer && audioBuffer.numberOfChannels < 4) {
+      setStatus(
+        "This file has fewer than 4 channels. A 4-channel WAV (music L, music R, TD, BD) is required for .rshw export.",
+        "error",
+      );
+      return;
+    }
+
+    _modal.show("Exporting .rshw Showtape", "Preparing Python runtime…", 5);
+    setStatus("Loading Python runtime for .rshw conversion…", "info");
+    let py;
+    try {
+      py = await ensurePyodide("Exporting .rshw Showtape");
+    } catch (err) {
+      _modal.hide();
+      setStatus("Failed to load Pyodide: " + err.message, "error");
+      return;
+    }
+
+    if (!rshwBuilderLoaded) {
+      _modal.step("Fetching .rshw builder module…", 60);
+      setStatus("Loading .rshw builder module…", "info");
+      try {
+        const res = await fetch("SCME/SGM/rshw_builder.py");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const src = await res.text();
+        _modal.step("Compiling .rshw builder…", 68);
+        await py.runPythonAsync(src);
+        rshwBuilderLoaded = true;
+      } catch (err) {
+        _modal.hide();
+        setStatus("Failed to load rshw_builder.py: " + err.message, "error");
+        return;
+      }
+    } else {
+      _modal.step("Builder module ready.", 68);
+    }
+
+    _modal.step("Passing WAV data to Python…", 72);
+    setStatus("Converting WAV → .rshw…", "info");
+
+    let rshwBytes;
+    try {
+      py.globals.set("_raw_wav", rawWavBytes);
+      _modal.step("Decoding BMC signals (TD + BD tracks)…", 78);
+      await py.runPythonAsync(
+        "_rshw_out = bytes(convert_4ch_wav_to_rshw(bytes(_raw_wav)))",
+      );
+      _modal.step("Serialising NRBF showtape…", 92);
+      const proxy = py.globals.get("_rshw_out");
+      rshwBytes = proxy.toJs(); // always a proper Uint8Array
+      proxy.destroy();
+    } catch (err) {
+      _modal.hide();
+      setStatus("Conversion failed: " + err.message, "error");
+      console.error("[SViz] .rshw conversion error:", err);
+      return;
+    }
+
+    _modal.step("Preparing download…", 98);
+    const baseName = (fileNameEl.textContent || "showtape").replace(
+      /\.[^.]+$/,
+      "",
+    );
+    const blob = new Blob([rshwBytes], { type: "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${baseName}.rshw`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+
+    _modal.step("Done!", 100);
+    await new Promise((r) => setTimeout(r, 400));
+    _modal.hide();
+    setStatus(`Exported ${baseName}.rshw successfully.`, "success");
+  }
+
+  if (exportRshwBtn) {
+    exportRshwBtn.addEventListener("click", exportRshw);
+  }
 
   // ── Waveform canvas ──────────────────────────────────────────────────────
   function drawWaveform(buf, tdIdx, bdIdx) {
@@ -553,57 +711,63 @@
   }
 
   // ── Player controls ──────────────────────────────────────────────────────
-  playBtn.addEventListener("click", async () => {
-    if (!audioBuffer || isPlaying) return;
-    // Create (or recreate) AudioContext on play — this IS a user gesture,
-    // so the browser will never auto-suspend it.
-    if (!audioCtx || audioCtx.state === "closed") {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    if (audioCtx.state === "suspended") await audioCtx.resume();
+  if (playBtn) {
+    playBtn.addEventListener("click", async () => {
+      if (!audioBuffer || isPlaying) return;
+      // Create (or recreate) AudioContext on play — this IS a user gesture,
+      // so the browser will never auto-suspend it.
+      if (!audioCtx || audioCtx.state === "closed") {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === "suspended") await audioCtx.resume();
 
-    sourceNode = audioCtx.createBufferSource();
-    sourceNode.buffer = audioBuffer;
+      sourceNode = audioCtx.createBufferSource();
+      sourceNode.buffer = audioBuffer;
 
-    // Only route music channels (Ch1+Ch2) to speakers via splitter/merger
-    const splitter = audioCtx.createChannelSplitter(
-      audioBuffer.numberOfChannels,
-    );
-    const merger = audioCtx.createChannelMerger(2);
-    sourceNode.connect(splitter);
+      // Only route music channels (Ch1+Ch2) to speakers via splitter/merger
+      const splitter = audioCtx.createChannelSplitter(
+        audioBuffer.numberOfChannels,
+      );
+      const merger = audioCtx.createChannelMerger(2);
+      sourceNode.connect(splitter);
 
-    if (audioBuffer.numberOfChannels >= 2) {
-      // Music L → merger 0, Music R → merger 1
-      splitter.connect(merger, 0, 0);
-      splitter.connect(merger, 1, 1);
-    } else {
-      splitter.connect(merger, 0, 0);
-      splitter.connect(merger, 0, 1);
-    }
-    merger.connect(audioCtx.destination);
+      if (audioBuffer.numberOfChannels >= 2) {
+        // Music L → merger 0, Music R → merger 1
+        splitter.connect(merger, 0, 0);
+        splitter.connect(merger, 1, 1);
+      } else {
+        splitter.connect(merger, 0, 0);
+        splitter.connect(merger, 0, 1);
+      }
+      merger.connect(audioCtx.destination);
 
-    sourceNode.start(0, pauseOffset);
-    startTime = audioCtx.currentTime;
-    isPlaying = true;
+      sourceNode.start(0, pauseOffset);
+      startTime = audioCtx.currentTime;
+      isPlaying = true;
 
-    playBtn.disabled = true;
-    pauseBtn.disabled = false;
+      if (playBtn) playBtn.disabled = true;
+      if (pauseBtn) pauseBtn.disabled = false;
 
-    animFrame = requestAnimationFrame(updatePlayhead);
-  });
+      animFrame = requestAnimationFrame(updatePlayhead);
+    });
+  }
 
-  pauseBtn.addEventListener("click", () => {
-    if (!isPlaying) return;
-    pauseOffset = currentPlaybackTime();
-    sourceNode.stop();
-    sourceNode = null;
-    isPlaying = false;
-    cancelAnimationFrame(animFrame);
-    playBtn.disabled = false;
-    pauseBtn.disabled = true;
-  });
+  if (pauseBtn) {
+    pauseBtn.addEventListener("click", () => {
+      if (!isPlaying) return;
+      pauseOffset = currentPlaybackTime();
+      sourceNode.stop();
+      sourceNode = null;
+      isPlaying = false;
+      cancelAnimationFrame(animFrame);
+      if (playBtn) playBtn.disabled = false;
+      if (pauseBtn) pauseBtn.disabled = true;
+    });
+  }
 
-  stopBtn.addEventListener("click", () => stopPlayback());
+  if (stopBtn) {
+    stopBtn.addEventListener("click", () => stopPlayback());
+  }
 
   progressBar.addEventListener("input", () => {
     const wasPlaying = isPlaying;
@@ -615,7 +779,7 @@
     }
     pauseOffset = parseFloat(progressBar.value);
     updatePlayhead();
-    if (wasPlaying) playBtn.click();
+    if (wasPlaying && playBtn) playBtn.click();
   });
 
   function stopPlayback() {
@@ -628,8 +792,8 @@
     isPlaying = false;
     pauseOffset = 0;
     cancelAnimationFrame(animFrame);
-    playBtn.disabled = false;
-    pauseBtn.disabled = true;
+    if (playBtn) playBtn.disabled = false;
+    if (pauseBtn) pauseBtn.disabled = true;
 
     if (progressBar) progressBar.value = 0;
     if (audioBuffer && timeDisplay)
