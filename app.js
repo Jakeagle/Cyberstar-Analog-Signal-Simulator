@@ -248,6 +248,8 @@ function setupEventListeners() {
   const importInput = document.getElementById("import-show-input");
   const importBtn = document.getElementById("import-show-btn");
   const importName = document.getElementById("import-show-name");
+  const importWavInput = document.getElementById("import-wav-input");
+  const importWavName = document.getElementById("import-wav-name");
   if (importInput) {
     importInput.addEventListener("change", () => {
       const file = importInput.files[0];
@@ -261,10 +263,20 @@ function setupEventListeners() {
       }
     });
   }
+  if (importWavInput) {
+    importWavInput.addEventListener("change", () => {
+      const f = importWavInput.files[0];
+      if (importWavName)
+        importWavName.textContent = f
+          ? f.name
+          : "Optional — required for playback & 4-ch export";
+    });
+  }
   if (importBtn) {
     importBtn.addEventListener("click", () => {
       const file = importInput && importInput.files[0];
-      if (file) importShowJSON(file);
+      const wav = importWavInput && importWavInput.files[0];
+      if (file) importShowJSON(file, wav || null);
     });
   }
 
@@ -919,7 +931,7 @@ function exportShowJSON(id) {
  * Validate and import a .cybershow.json file, adding it as a custom showtape.
  * Accepts v3.0 (character-centric) and legacy v2.1 (flat sequences) formats.
  */
-function importShowJSON(file) {
+function importShowJSON(file, wavFile) {
   const statusEl = document.getElementById("import-show-status");
   const btn = document.getElementById("import-show-btn");
   btn.disabled = true;
@@ -927,7 +939,7 @@ function importShowJSON(file) {
   statusEl.textContent = "Reading file…";
 
   const reader = new FileReader();
-  reader.onload = (e) => {
+  reader.onload = async (e) => {
     try {
       const obj = JSON.parse(e.target.result);
 
@@ -1038,15 +1050,58 @@ function importShowJSON(file) {
       SHOWTAPES[id] = tape;
       saveCustomShowtape(tape);
 
-      const msg =
+      // ── Auto-select in the player ──────────────────────────────────────
+      currentShowtapeId = id;
+      if (tape.band !== currentBand) {
+        currentBand = tape.band;
+        const bandSelect = document.getElementById("band-select");
+        if (bandSelect) bandSelect.value = currentBand;
+        signalGenerator.clearAllCharacterStates();
+      }
+      const playerSelect = document.getElementById("showtape-select");
+      if (playerSelect) {
+        playerSelect.value = id;
+        playerSelect.dispatchEvent(new Event("change"));
+      }
+      document.getElementById("tape-description").textContent =
+        tape.description;
+      currentPlaybackState.totalTime = tape.duration;
+      updateTimeDisplay();
+
+      const baseMsg =
         skipped > 0
           ? `✓ Imported "${tape.title}" — ${sequences.length} cues loaded, ${skipped} invalid cues skipped.`
           : `✓ Imported "${tape.title}" — ${sequences.length} cues loaded.`;
 
-      statusEl.style.color = "#0f8";
-      statusEl.textContent = msg;
+      // ── Decode WAV if provided ─────────────────────────────────────────
+      if (wavFile) {
+        statusEl.style.color = "#0f8";
+        statusEl.textContent = baseMsg + " Loading song…";
+        try {
+          const arrayBuf = await wavFile.arrayBuffer();
+          const ac = signalGenerator.audioContext;
+          if (ac.state === "suspended") await ac.resume();
+          songBuffer = await ac.decodeAudioData(arrayBuf);
+          statusEl.textContent =
+            baseMsg + ` 🎵 "${wavFile.name}" ready — hit ▶ Play or export!`;
+          // Reset WAV picker
+          const wi = document.getElementById("import-wav-input");
+          if (wi) wi.value = "";
+          const wn = document.getElementById("import-wav-name");
+          if (wn)
+            wn.textContent = "Optional — required for playback & 4-ch export";
+        } catch (wavErr) {
+          statusEl.textContent =
+            baseMsg + ` ⚠️ Song load failed: ${wavErr.message}`;
+        }
+      } else {
+        statusEl.style.color = "#0f8";
+        statusEl.textContent =
+          baseMsg +
+          " No song loaded — add a WAV above then re-import, or export will be signal-only.";
+      }
 
-      // Reset file input
+      // Reset JSON file input
       document.getElementById("import-show-input").value = "";
       document.getElementById("import-show-name").textContent =
         "No file chosen";
