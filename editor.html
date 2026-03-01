@@ -349,6 +349,44 @@
         cursor: grabbing;
       }
 
+      /* ── STATE BLOCKS (hold-position regions) ────────────────── */
+      .state-block {
+        position: absolute;
+        top: 3px;
+        height: calc(var(--row-h) - 6px);
+        border-radius: 3px;
+        cursor: grab;
+        border: 1.5px dashed rgba(255, 255, 255, 0.35);
+        z-index: 2;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.58em;
+        font-weight: 800;
+        letter-spacing: 1.5px;
+        color: rgba(255, 255, 255, 0.6);
+        text-shadow: 0 0 4px rgba(0, 0, 0, 0.9);
+        transition:
+          opacity 0.1s,
+          filter 0.1s;
+      }
+      .state-block:hover {
+        opacity: 1 !important;
+        filter: brightness(1.35);
+      }
+      .state-block.selected {
+        opacity: 1 !important;
+        border-style: solid !important;
+        border-color: #fff !important;
+        filter: brightness(1.4);
+        box-shadow: 0 0 6px rgba(255, 255, 255, 0.4);
+      }
+      .state-block.block-dragging {
+        opacity: 0.3 !important;
+        cursor: grabbing;
+      }
+
       /* ── DRAG-SELECT RECTANGLE ───────────────────────────────── */
       #select-rect {
         position: absolute;
@@ -381,6 +419,13 @@
         border-color: rgba(0, 255, 180, 0.5) !important;
         color: #00ffb0 !important;
         background: rgba(0, 255, 160, 0.08) !important;
+      }
+
+      /* ── STATE-MODE BUTTON ACTIVE ─────────────────────────────── */
+      .state-mode-active {
+        border-color: rgba(255, 180, 0, 0.55) !important;
+        color: #ffb400 !important;
+        background: rgba(255, 175, 0, 0.1) !important;
       }
 
       /* ── PLAYHEAD ─────────────────────────────────────────────── */
@@ -707,6 +752,13 @@
           >
             🔒 Snap
           </button>
+          <button
+            id="btn-state-mode"
+            class="tb-btn"
+            title="Toggle State Block mode — drag a row to insert a HOLD block that pulses the signal to freeze the animatronic at its current position (T)"
+          >
+            📌 State
+          </button>
           <span id="time-display" class="time-display">0:00.000 / F0</span>
         </div>
 
@@ -862,7 +914,12 @@
         <span><kbd>Click</kbd> ruler → seek</span>
         <span
           ><kbd>Space</kbd> play/pause &ensp; <kbd>S</kbd> snap &ensp;
-          <kbd>Shift</kbd>+drag bypass snap</span
+          <kbd>T</kbd> state-block mode &ensp; <kbd>Shift</kbd>+drag bypass
+          snap</span
+        >
+        <span
+          >📌 <kbd>State mode</kbd>: drag row after a signal block → freeze
+          position</span
         >
       </div>
 
@@ -941,6 +998,7 @@
       let blockMoveState = null; // { charName, movKey, startFrame, endFrame, dur, grabOffset, el, row, mouseDownX, dragging, mode ('move'|'resize-start'|'resize-end'), previewStart, previewEnd }
       let dragSelectState = null; // { startFrame, curFrame, anchorClientX }
       let snapEnabled = true;
+      let drawMode = "signal"; // 'signal' | 'state'
       let rafId = null;
 
       const SNAP_PX = 12; // pixels — snap activation threshold
@@ -952,7 +1010,12 @@
       let elEditorBody, elEmptyState, elLabelScroll, elTimelineWrap;
       let elRulerCanvas, elTracks, elPlayhead, elDragPreview, elSnapLine;
       let elStatus, elTimeDisplay, elZoomLabel;
-      let elBtnPlay, elBtnPause, elBtnStop, elBtnExport, elBtnSnap;
+      let elBtnPlay,
+        elBtnPause,
+        elBtnStop,
+        elBtnExport,
+        elBtnSnap,
+        elBtnStateMode;
 
       /* ============================================================
    UTILITIES
@@ -998,12 +1061,19 @@
           for (let f = 0; f <= totalFrames; f += FPS) targets.add(f);
         }
 
-        // Snap to edges of all blocks on this row (excluding the block being moved)
+        // Snap to edges of all signal blocks on this row (excluding the block being moved)
         for (const blk of getBlocks(charName, movKey)) {
           if (blk.startFrame === excludeFrom && blk.endFrame === excludeTo)
             continue;
           targets.add(blk.startFrame);
           targets.add(blk.endFrame);
+        }
+        // Snap to edges of state-hold blocks on this row
+        for (const sb of getStateBlocks(charName, movKey)) {
+          if (sb.startFrame === excludeFrom && sb.endFrame === excludeTo)
+            continue;
+          targets.add(sb.startFrame);
+          targets.add(sb.endFrame);
         }
         return [...targets].sort((a, b) => a - b);
       }
@@ -1054,6 +1124,24 @@
         );
       }
 
+      /** Toggle between normal signal-block draw mode and state-hold draw mode. */
+      function toggleStateMode() {
+        drawMode = drawMode === "state" ? "signal" : "state";
+        const isState = drawMode === "state";
+        elBtnStateMode.classList.toggle("state-mode-active", isState);
+        elBtnStateMode.textContent = isState ? "📌 State ●" : "📌 State";
+        // Change the timeline cursor to hint at the active mode
+        if (elTracks) {
+          for (const row of elTracks.querySelectorAll(".track-row"))
+            row.style.cursor = isState ? "cell" : "crosshair";
+        }
+        setStatus(
+          isState
+            ? "STATE BLOCK MODE — drag a timeline row to insert a hold block that freezes the animatronic's position. Press T or click again to exit."
+            : "SIGNAL BLOCK MODE — drag a timeline row to insert a normal signal block.",
+        );
+      }
+
       /* ============================================================
    SHOW DATA HELPERS
    ============================================================ */
@@ -1076,6 +1164,27 @@
 
       function getBit(charName, movKey) {
         return CHARACTER_MOVEMENTS[charName]?.movements?.[movKey]?.bit ?? 0;
+      }
+
+      /** Return all state-hold blocks for a given character + movement, sorted by startFrame. */
+      function getStateBlocks(charName, movKey) {
+        return (showData?.characters?.[charName]?.state_blocks || [])
+          .filter((sb) => sb.movement === movKey)
+          .sort((a, b) => a.startFrame - b.startFrame);
+      }
+
+      /**
+       * Determine what state a movement is in at `frame` by scanning all
+       * ON/OFF signals up to that point.  Returns true if the mechanism
+       * is currently activated (ON / extended).
+       */
+      function getMovementStateAtFrame(charName, movKey, frame) {
+        const sigs = getCharSignals(charName, movKey)
+          .filter((s) => s.frame <= frame)
+          .sort((a, b) => a.frame - b.frame);
+        let on = false;
+        for (const s of sigs) on = s.state;
+        return on;
       }
 
       /** Pair ON→OFF signals into renderable blocks */
@@ -1322,8 +1431,11 @@
         );
         if (!row) return;
 
-        for (const b of row.querySelectorAll(".signal-block")) b.remove();
+        // Clear both signal blocks AND any state blocks before re-rendering
+        for (const b of row.querySelectorAll(".signal-block, .state-block"))
+          b.remove();
 
+        // ── Signal blocks ────────────────────────────────────────────────
         for (const blk of getBlocks(charName, movKey)) {
           const x = frameToX(blk.startFrame);
           const w = Math.max(3, frameToX(blk.endFrame) - x);
@@ -1334,7 +1446,6 @@
           el.dataset.key = key;
           el.style.cssText = `left:${x}px;width:${w}px;background:${color};`;
           el.title = `${charName} / ${movKey.replace(/_/g, " ")}\nON: F${blk.startFrame} (${frameToTimestamp(blk.startFrame)})\nOFF: F${blk.endFrame} (${frameToTimestamp(blk.endFrame)})\nDrag middle → move  |  Drag edge → resize  |  Del → remove`;
-          // Dynamic cursor: ew-resize near edges, grab in middle
           el.addEventListener("mousemove", (ev) => {
             const ex = ev.offsetX;
             const bw = el.offsetWidth;
@@ -1349,7 +1460,6 @@
             if (e.button !== 0) return;
             e.stopPropagation();
             e.preventDefault();
-            // Ctrl+click → toggle this block in the multi-selection (no drag)
             if (e.ctrlKey || e.metaKey) {
               toggleBlockInSelection(key, el);
               return;
@@ -1376,6 +1486,79 @@
               mode,
               previewStart: undefined,
               previewEnd: undefined,
+              isState: false,
+            };
+          });
+          row.appendChild(el);
+        }
+
+        // ── State-hold blocks ─────────────────────────────────────────────
+        for (const sb of getStateBlocks(charName, movKey)) {
+          const x = frameToX(sb.startFrame);
+          const w = Math.max(3, frameToX(sb.endFrame) - x);
+          const sbKey = `STATE||${charName}||${movKey}||${sb.startFrame}`;
+          const heldOn = getMovementStateAtFrame(
+            charName,
+            movKey,
+            sb.startFrame,
+          );
+          // Diagonal-stripe pattern; denser / brighter when mechanism is ON
+          const hi = heldOn ? "66" : "33";
+          const lo = "14";
+          const el = document.createElement("div");
+          el.className = "state-block";
+          el.dataset.key = sbKey;
+          el.style.cssText =
+            `left:${x}px;width:${w}px;` +
+            `background:repeating-linear-gradient(-45deg,${color}${hi} 0px,${color}${hi} 5px,${color}${lo} 5px,${color}${lo} 10px);` +
+            `border-color:${color}aa;`;
+          if (w > 34) el.textContent = heldOn ? "HOLD" : "REST";
+          el.title =
+            `${charName} / ${movKey.replace(/_/g, " ")} — STATE HOLD\n` +
+            `Range: F${sb.startFrame} (${frameToTimestamp(sb.startFrame)}) → F${sb.endFrame} (${frameToTimestamp(sb.endFrame)})\n` +
+            `Holding: ${heldOn ? "ON (extended/active)" : "OFF (retracted/rest)"}\n` +
+            `Drag middle → move  |  Drag edge → resize  |  Del → remove`;
+          el.addEventListener("mousemove", (ev) => {
+            const ex = ev.offsetX;
+            const bw = el.offsetWidth;
+            if (ex < EDGE_PX || bw - ex < EDGE_PX)
+              el.style.cursor = "ew-resize";
+            else el.style.cursor = "grab";
+          });
+          el.addEventListener("mouseleave", () => {
+            el.style.cursor = "";
+          });
+          el.addEventListener("mousedown", (e) => {
+            if (e.button !== 0) return;
+            e.stopPropagation();
+            e.preventDefault();
+            if (e.ctrlKey || e.metaKey) {
+              toggleBlockInSelection(sbKey, el);
+              return;
+            }
+            selectBlock(sbKey, el);
+            const bw = el.offsetWidth;
+            const ex = e.offsetX;
+            const mode =
+              ex < EDGE_PX
+                ? "resize-start"
+                : bw - ex < EDGE_PX
+                  ? "resize-end"
+                  : "move";
+            blockMoveState = {
+              charName,
+              movKey,
+              startFrame: sb.startFrame,
+              endFrame: sb.endFrame,
+              dur: sb.endFrame - sb.startFrame,
+              el,
+              row,
+              mouseDownX: e.clientX,
+              dragging: false,
+              mode,
+              previewStart: undefined,
+              previewEnd: undefined,
+              isState: true,
             };
           });
           row.appendChild(el);
@@ -1397,10 +1580,18 @@
         selectedKey = key;
         selectedKeys.add(key);
         el.classList.add("selected");
-        const [cn, mk, sf] = key.split("||");
-        setStatus(
-          `Selected: ${cn} / ${mk.replace(/_/g, " ")} — F${sf} — Ctrl+C copy · Ctrl+D duplicate · Del remove`,
-        );
+        const parts = key.split("||");
+        if (parts[0] === "STATE") {
+          const [, cn, mk, sf] = parts;
+          setStatus(
+            `Selected STATE HOLD: ${cn} / ${mk.replace(/_/g, " ")} — F${sf} — Del to remove`,
+          );
+        } else {
+          const [cn, mk, sf] = parts;
+          setStatus(
+            `Selected: ${cn} / ${mk.replace(/_/g, " ")} — F${sf} — Ctrl+C copy · Ctrl+D duplicate · Del remove`,
+          );
+        }
       }
 
       function toggleBlockInSelection(key, el) {
@@ -1418,9 +1609,11 @@
         if (n === 0) {
           setStatus("No blocks selected.");
         } else if (n === 1) {
-          const [cn, mk, sf] = [...selectedKeys][0].split("||");
+          const _parts = [...selectedKeys][0].split("||");
+          const [cn, mk, sf] = _parts[0] === "STATE" ? _parts.slice(1) : _parts;
+          const pfx = _parts[0] === "STATE" ? "STATE HOLD: " : "";
           setStatus(
-            `Selected: ${cn} / ${mk.replace(/_/g, " ")} — F${sf} — Ctrl+C copy · Del remove`,
+            `Selected: ${pfx}${cn} / ${mk.replace(/_/g, " ")} — F${sf} — ${_parts[0] === "STATE" ? "Del to remove" : "Ctrl+C copy · Del remove"}`,
           );
         } else {
           setStatus(
@@ -1439,39 +1632,53 @@
 
       function deleteSelected() {
         if (selectedKeys.size === 0) return;
-        const toDelete = [...selectedKeys].map((k) => {
-          const [charName, movKey, sfStr] = k.split("||");
-          return { charName, movKey, startFrame: parseInt(sfStr, 10) };
-        });
         const affectedRows = new Set();
-        for (const { charName, movKey, startFrame } of toDelete) {
-          const sigs = showData?.characters?.[charName]?.signals;
-          if (!sigs) continue;
-          let onIdx = -1,
-            offIdx = -1;
-          for (let i = 0; i < sigs.length; i++) {
-            if (
-              sigs[i].movement === movKey &&
-              sigs[i].state === true &&
-              sigs[i].frame === startFrame
-            )
-              onIdx = i;
-          }
-          if (onIdx >= 0) {
-            for (let i = onIdx + 1; i < sigs.length; i++) {
-              if (sigs[i].movement === movKey && sigs[i].state === false) {
-                offIdx = i;
-                break;
+        for (const k of selectedKeys) {
+          const parts = k.split("||");
+          if (parts[0] === "STATE") {
+            // ── State-hold block deletion ──
+            const [, charName, movKey, sfStr] = parts;
+            const startFrame = parseInt(sfStr, 10);
+            const sbs = showData?.characters?.[charName]?.state_blocks;
+            if (sbs) {
+              const idx = sbs.findIndex(
+                (sb) => sb.movement === movKey && sb.startFrame === startFrame,
+              );
+              if (idx >= 0) sbs.splice(idx, 1);
+            }
+            affectedRows.add(`${charName}||${movKey}`);
+          } else {
+            // ── Signal block deletion ──
+            const [charName, movKey, sfStr] = parts;
+            const startFrame = parseInt(sfStr, 10);
+            const sigs = showData?.characters?.[charName]?.signals;
+            if (!sigs) continue;
+            let onIdx = -1,
+              offIdx = -1;
+            for (let i = 0; i < sigs.length; i++) {
+              if (
+                sigs[i].movement === movKey &&
+                sigs[i].state === true &&
+                sigs[i].frame === startFrame
+              )
+                onIdx = i;
+            }
+            if (onIdx >= 0) {
+              for (let i = onIdx + 1; i < sigs.length; i++) {
+                if (sigs[i].movement === movKey && sigs[i].state === false) {
+                  offIdx = i;
+                  break;
+                }
               }
             }
+            const toRemove = [onIdx, offIdx]
+              .filter((i) => i >= 0)
+              .sort((a, b) => b - a);
+            for (const idx of toRemove) sigs.splice(idx, 1);
+            affectedRows.add(`${charName}||${movKey}`);
           }
-          const toRemove = [onIdx, offIdx]
-            .filter((i) => i >= 0)
-            .sort((a, b) => b - a);
-          for (const idx of toRemove) sigs.splice(idx, 1);
-          affectedRows.add(`${charName}||${movKey}`);
         }
-        const n = toDelete.length;
+        const n = selectedKeys.size;
         clearSelection();
         for (const rowKey of affectedRows) {
           const [cn, mk] = rowKey.split("||");
@@ -1612,6 +1819,7 @@
           curFrame: frame,
           row,
           shiftHeld: e.shiftKey,
+          isState: drawMode === "state",
         };
         updateDragPreview(row, frame, frame);
         showSnapLine(frame);
@@ -1776,17 +1984,33 @@
                 bm.previewEnd !== bm.endFrame)
             ) {
               // Overlap check — exclude the block being moved
-              const overlaps = getBlocks(bm.charName, bm.movKey).some((b) => {
-                if (
-                  b.startFrame === bm.startFrame &&
-                  b.endFrame === bm.endFrame
-                )
-                  return false;
-                return (
-                  bm.previewStart < b.endFrame && bm.previewEnd > b.startFrame
-                );
-              });
-              if (overlaps) {
+              const signalOverlap = getBlocks(bm.charName, bm.movKey).some(
+                (b) => {
+                  if (
+                    !bm.isState &&
+                    b.startFrame === bm.startFrame &&
+                    b.endFrame === bm.endFrame
+                  )
+                    return false;
+                  return (
+                    bm.previewStart < b.endFrame && bm.previewEnd > b.startFrame
+                  );
+                },
+              );
+              const stateOverlap = getStateBlocks(bm.charName, bm.movKey).some(
+                (b) => {
+                  if (
+                    bm.isState &&
+                    b.startFrame === bm.startFrame &&
+                    b.endFrame === bm.endFrame
+                  )
+                    return false;
+                  return (
+                    bm.previewStart < b.endFrame && bm.previewEnd > b.startFrame
+                  );
+                },
+              );
+              if (signalOverlap || stateOverlap) {
                 setStatus(
                   "⚠ Cannot move block — would overlap another signal.",
                   "#fa0",
@@ -1800,6 +2024,7 @@
                   bm.endFrame,
                   bm.previewStart,
                   bm.previewEnd,
+                  bm.isState,
                 );
               }
             } else {
@@ -1820,6 +2045,7 @@
             clearSelection();
             let count = 0;
             for (const { charName, movKey } of rowMeta) {
+              // Select signal blocks in range
               for (const blk of getBlocks(charName, movKey)) {
                 if (blk.startFrame < frameB && blk.endFrame > frameA) {
                   const k = `${charName}||${movKey}||${blk.startFrame}`;
@@ -1828,6 +2054,19 @@
                   count++;
                   const el = elTracks.querySelector(
                     `.signal-block[data-key="${CSS.escape(k)}"]`,
+                  );
+                  if (el) el.classList.add("selected");
+                }
+              }
+              // Also select state-hold blocks in range
+              for (const sb of getStateBlocks(charName, movKey)) {
+                if (sb.startFrame < frameB && sb.endFrame > frameA) {
+                  const k = `STATE||${charName}||${movKey}||${sb.startFrame}`;
+                  selectedKeys.add(k);
+                  selectedKey = k;
+                  count++;
+                  const el = elTracks.querySelector(
+                    `.state-block[data-key="${CSS.escape(k)}"]`,
                   );
                   if (el) el.classList.add("selected");
                 }
@@ -1844,7 +2083,14 @@
 
         /* ── New-block creation drag end ── */
         if (!dragState) return;
-        const { charName, movKey, anchorFrame, curFrame: cf, row } = dragState;
+        const {
+          charName,
+          movKey,
+          anchorFrame,
+          curFrame: cf,
+          row,
+          isState,
+        } = dragState;
         let startFrame = Math.min(anchorFrame, cf);
         let endFrame = Math.max(anchorFrame, cf);
         if (endFrame - startFrame < 1) endFrame = startFrame + 1;
@@ -1856,19 +2102,26 @@
 
         if (startFrame >= endFrame) return;
 
-        // Overlap check
-        const overlaps = getBlocks(charName, movKey).some(
+        // Overlap check — neither signal blocks nor state blocks may overlap
+        const sigOverlap = getBlocks(charName, movKey).some(
           (b) => startFrame < b.endFrame && endFrame > b.startFrame,
         );
-        if (overlaps) {
+        const sbOverlap = getStateBlocks(charName, movKey).some(
+          (b) => startFrame < b.endFrame && endFrame > b.startFrame,
+        );
+        if (sigOverlap || sbOverlap) {
           setStatus(
-            "⚠ Cannot place block — overlaps an existing signal. Select and delete the existing block first.",
+            `⚠ Cannot place ${isState ? "state" : "signal"} block — overlaps an existing block. Select and delete the existing block first.`,
             "#fa0",
           );
           return;
         }
 
-        commitInsert(charName, movKey, startFrame, endFrame);
+        if (isState) {
+          commitStateInsert(charName, movKey, startFrame, endFrame);
+        } else {
+          commitInsert(charName, movKey, startFrame, endFrame);
+        }
       }
 
       /* ============================================================
@@ -1881,7 +2134,45 @@
         oldEnd,
         newStart,
         newEnd,
+        isState = false,
       ) {
+        // ── State-hold block move ────────────────────────────────────────
+        if (isState) {
+          const sbs = showData?.characters?.[charName]?.state_blocks;
+          if (!sbs) {
+            setStatus("✗ Could not locate state block to move.", "#f44");
+            refreshRow(charName, movKey);
+            return;
+          }
+          const sb = sbs.find(
+            (b) =>
+              b.movement === movKey &&
+              b.startFrame === oldStart &&
+              b.endFrame === oldEnd,
+          );
+          if (!sb) {
+            setStatus("✗ Could not locate state block to move.", "#f44");
+            refreshRow(charName, movKey);
+            return;
+          }
+          sb.startFrame = newStart;
+          sb.endFrame = newEnd;
+          sbs.sort((a, b) => a.startFrame - b.startFrame);
+          selectedKey = `STATE||${charName}||${movKey}||${newStart}`;
+          selectedKeys.clear();
+          selectedKeys.add(selectedKey);
+          refreshRow(charName, movKey);
+          const movedEl = elTracks.querySelector(
+            `.state-block[data-key="${CSS.escape(selectedKey)}"]`,
+          );
+          if (movedEl) movedEl.classList.add("selected");
+          setStatus(
+            `Moved STATE HOLD: ${charName} / ${movKey.replace(/_/g, " ")} → F${newStart}–F${newEnd} (${frameToTimestamp(newStart)} – ${frameToTimestamp(newEnd)})`,
+          );
+          return;
+        }
+
+        // ── Signal block move (original) ─────────────────────────────────
         const sigs = showData?.characters?.[charName]?.signals;
         if (!sigs) return;
 
@@ -1961,6 +2252,32 @@
         );
       }
 
+      /**
+       * Insert a state-hold block.  No ON/OFF signals are written — the hold
+       * is expressed by continuously re-pulsing the preceding signal at export time.
+       */
+      function commitStateInsert(charName, movKey, startFrame, endFrame) {
+        ensureChar(charName);
+        if (!showData.characters[charName].state_blocks) {
+          showData.characters[charName].state_blocks = [];
+        }
+        showData.characters[charName].state_blocks.push({
+          movement: movKey,
+          startFrame,
+          endFrame,
+          note: "",
+        });
+        showData.characters[charName].state_blocks.sort(
+          (a, b) => a.startFrame - b.startFrame,
+        );
+        refreshRow(charName, movKey);
+        const heldOn = getMovementStateAtFrame(charName, movKey, startFrame);
+        setStatus(
+          `Added STATE HOLD (${heldOn ? "ON" : "OFF"}): ${charName} / ${movKey.replace(/_/g, " ")} ` +
+            `F${startFrame}–F${endFrame} (${frameToTimestamp(startFrame)} – ${frameToTimestamp(endFrame)})`,
+        );
+      }
+
       function updateDragPreview(row, startFrame, endFrame) {
         const x = frameToX(startFrame);
         const w = Math.max(3, frameToX(endFrame) - x);
@@ -1969,6 +2286,16 @@
         elDragPreview.style.top = row.offsetTop + 3 + "px";
         elDragPreview.style.width = w + "px";
         elDragPreview.style.height = ROW_H - 6 + "px";
+        // Visual distinction: state-mode drag preview is amber-tinted + striped
+        const inStateMode = dragState?.isState ?? drawMode === "state";
+        if (inStateMode) {
+          elDragPreview.style.background =
+            "repeating-linear-gradient(-45deg,rgba(255,180,0,0.35) 0px,rgba(255,180,0,0.35) 5px,rgba(255,180,0,0.1) 5px,rgba(255,180,0,0.1) 10px)";
+          elDragPreview.style.border = "1px dashed rgba(255,180,0,0.7)";
+        } else {
+          elDragPreview.style.background = "rgba(255,255,255,0.3)";
+          elDragPreview.style.border = "1px solid rgba(255,255,255,0.6)";
+        }
       }
 
       function hideDragPreview() {
@@ -2396,6 +2723,7 @@
         elBtnStop = document.getElementById("btn-stop");
         elBtnExport = document.getElementById("btn-export");
         elBtnSnap = document.getElementById("btn-snap");
+        elBtnStateMode = document.getElementById("btn-state-mode");
         elSnapLine = document.getElementById("snap-line");
 
         // File inputs
@@ -2440,6 +2768,7 @@
         elBtnStop.addEventListener("click", () => stopPlayback(true));
         elBtnExport.addEventListener("click", exportJSON);
         elBtnSnap.addEventListener("click", toggleSnap);
+        elBtnStateMode.addEventListener("click", toggleStateMode);
         document
           .getElementById("btn-save")
           .addEventListener("click", saveToLocalStorage);
@@ -2528,6 +2857,7 @@
           if (e.code === "Minus" || e.code === "NumpadSubtract")
             applyZoom(zoom - 1);
           if (e.code === "KeyS" && !e.ctrlKey && !e.metaKey) toggleSnap();
+          if (e.code === "KeyT" && !e.ctrlKey && !e.metaKey) toggleStateMode();
           if ((e.ctrlKey || e.metaKey) && e.code === "KeyS") {
             e.preventDefault();
             saveToLocalStorage();

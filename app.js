@@ -988,6 +988,58 @@ function importShowJSON(file, wavFile) {
           }
         }
 
+        // ── v3.0: state blocks → synthetic hold events ───────────────────────
+        // Each state block holds the mechanism at its preceding signal state.
+        // We inject a re-activation event (+1 ms offset so it sorts after any
+        // simultaneous OFF) and a deactivation at the end of the hold window.
+        for (const [charName, charData] of Object.entries(obj.characters)) {
+          const charEntry = CHARACTER_MOVEMENTS[charName];
+          if (!charEntry) continue;
+          for (const sb of charData.state_blocks || []) {
+            const { movement: movKey, startFrame, endFrame } = sb;
+            if (
+              !movKey ||
+              typeof startFrame !== "number" ||
+              typeof endFrame !== "number" ||
+              endFrame <= startFrame
+            )
+              continue;
+            if (!charEntry.movements[movKey]) continue;
+
+            // Determine the held state at startFrame by scanning all signals
+            // for this movement up to (and including) that frame.
+            const movSigs = (charData.signals || [])
+              .filter((s) => s.movement === movKey && s.frame <= startFrame)
+              .sort((a, b) => a.frame - b.frame);
+            let heldState = false;
+            for (const s of movSigs) heldState = s.state;
+
+            if (heldState) {
+              // Mechanism was ON — re-activate right after the preceding
+              // off-signal (the +1 ms ensures this sorts after it at identical
+              // frame boundaries in the Python builder), then deactivate at end.
+              sequences.push({
+                time: Math.max(0, Math.round(startFrame * MS_PER_FRAME)) + 1,
+                character: charName,
+                movement: movKey,
+                state: true,
+                note: "state-hold",
+                executed: false,
+              });
+              sequences.push({
+                time: Math.max(0, Math.round(endFrame * MS_PER_FRAME)),
+                character: charName,
+                movement: movKey,
+                state: false,
+                note: "state-hold-end",
+                executed: false,
+              });
+            }
+            // If heldState === false: mechanism is already OFF, stays OFF
+            // naturally — no synthetic events needed.
+          }
+        }
+
         // ── v2.1 legacy: flat sequences array ────────────────────────────────
       } else if (Array.isArray(obj.sequences) && obj.sequences.length > 0) {
         for (const s of obj.sequences) {
