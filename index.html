@@ -2264,10 +2264,7 @@
             if (blockMoveState.mode === "move") {
               // Compute grab offset (frames into the block where user clicked)
               const rowRect = blockMoveState.row.getBoundingClientRect();
-              const grabX =
-                blockMoveState.mouseDownX -
-                rowRect.left +
-                elTimelineWrap.scrollLeft;
+              const grabX = blockMoveState.mouseDownX - rowRect.left;
               blockMoveState.grabOffset =
                 xToFrame(grabX) - blockMoveState.startFrame;
             }
@@ -2276,7 +2273,7 @@
             const { charName, movKey, startFrame, endFrame, dur, mode } =
               blockMoveState;
             const rowRect = blockMoveState.row.getBoundingClientRect();
-            const rawX = e.clientX - rowRect.left + elTimelineWrap.scrollLeft;
+            const rawX = e.clientX - rowRect.left;
             const rawFrame = xToFrame(rawX);
 
             if (mode === "move") {
