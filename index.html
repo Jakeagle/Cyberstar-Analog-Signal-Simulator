@@ -3905,16 +3905,42 @@
             for (let i = 0; i < bdI16.length; i++) bdF32[i] = bdI16[i] / 32768;
 
             _edModal.step("Assembling 4-channel WAV…", 88);
-            const musL = new Float32Array(n);
-            const musR = new Float32Array(n);
+            const targetRate = result.sample_rate;
+
+            // Resample music to targetRate using OfflineAudioContext so the
+            // music channel sample-rate always matches the BMC tracks, even
+            // when the user loaded a 48 kHz (or other) WAV file.
+            let musL = new Float32Array(n);
+            let musR = new Float32Array(n);
             if (audioBuffer) {
-              const s0 = audioBuffer.getChannelData(0);
-              musL.set(s0.subarray(0, Math.min(s0.length, n)));
-              const s1 =
-                audioBuffer.numberOfChannels > 1
-                  ? audioBuffer.getChannelData(1)
-                  : s0;
-              musR.set(s1.subarray(0, Math.min(s1.length, n)));
+              if (audioBuffer.sampleRate !== targetRate) {
+                const durationSec = n / targetRate;
+                const offCtx = new OfflineAudioContext(
+                  Math.min(audioBuffer.numberOfChannels, 2),
+                  Math.ceil(durationSec * targetRate),
+                  targetRate,
+                );
+                const src = offCtx.createBufferSource();
+                src.buffer = audioBuffer;
+                src.connect(offCtx.destination);
+                src.start(0);
+                const resampled = await offCtx.startRendering();
+                const rs0 = resampled.getChannelData(0);
+                musL.set(rs0.subarray(0, Math.min(rs0.length, n)));
+                const rs1 =
+                  resampled.numberOfChannels > 1
+                    ? resampled.getChannelData(1)
+                    : rs0;
+                musR.set(rs1.subarray(0, Math.min(rs1.length, n)));
+              } else {
+                const s0 = audioBuffer.getChannelData(0);
+                musL.set(s0.subarray(0, Math.min(s0.length, n)));
+                const s1 =
+                  audioBuffer.numberOfChannels > 1
+                    ? audioBuffer.getChannelData(1)
+                    : s0;
+                musR.set(s1.subarray(0, Math.min(s1.length, n)));
+              }
             }
             const wavBuf = _encodeMultiChWAV(
               [musL, musR, tdF32, bdF32],
