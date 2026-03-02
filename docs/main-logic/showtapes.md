@@ -1,6 +1,11 @@
-# showtapes.js — Bundled Showtape Library
+# showtapes.js — Bundled Showtape Library (Legacy v2)
 
-`showtapes.js` contains the pre-built, hand-crafted (and auto-generated) showtape timelines that ship with the simulator. These are used for:
+> **v3 notice:** `showtapes.js` is a **legacy module** and is **not loaded** by `index.html` in v3.
+> Bundled showtape timelines are not used in v3 — shows are authored manually in the piano roll
+> editor. `app.js` (which consumed these bundled tapes) is also legacy. This documentation is
+> retained for historical reference.
+
+`showtapes.js` contained the pre-built, hand-crafted (and auto-generated) showtape timelines that shipped with the v2 simulator. These are used for:
 
 - Demo playback without requiring audio upload
 - Testing the playback engine and signal generator

@@ -6,7 +6,7 @@ This page explains the path from a choreography timeline (character movements at
 
 ## Starting Point: The Choreography Sequence
 
-After SAM analysis (or manual editing), the choreography is a list of events:
+After show authoring in the piano roll editor (or via standalone SAM in legacy use), the choreography is resolved to a list of events:
 
 ```json
 [
@@ -111,7 +111,8 @@ SPTE hardware and RR-Engine both expect exactly this channel order at 44,100 Hz 
 
 ## Step 6: Validate
 
-After export, `SCME/SVM/validate.py` (or the browser-side `stDirectDecode`) verifies:
+After export, `SCME/SVM/validate.py` (in standalone mode) or the SViz module inside Pyodide
+(in the browser 4ch Tester modal) verifies:
 
 - The sync byte (`0xFF`) appears in the first byte of every decoded frame
 - Blank bits (TD: 56, 65, 70; BD: 45 — 1-based) are `0` in ≥ 98% of frames
@@ -123,4 +124,4 @@ If validation passes, the file is hardware-safe. If it fails, the validation rep
 
 ## Common Failure: Wrong Baud Rate
 
-The most common encoding mistake observed in earlier versions was using 4,410 baud (10 samples/bit) instead of the hardware 4,800 baud (9 samples/bit). The browser preview generator uses 4,410 baud intentionally (integer-exact at 44,100 Hz). The Python export pipeline uses 4,800 baud to match physical hardware. **Never mix the two in the same signal.**
+The most common encoding mistake observed in earlier versions was using 4,410 baud (10 samples/bit) instead of the hardware 4,800 baud (9 samples/bit). The legacy v2 browser BMC generator (`cyberstar-signals.js`, not used in v3) used 4,410 baud (integer-exact at 44,100 Hz). The Python export pipeline uses 4,800 baud to match physical hardware. **Never mix the two in the same signal.**

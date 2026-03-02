@@ -1,6 +1,13 @@
-# cyberstar-signals.js — Real-Time BMC Signal Generator
+# cyberstar-signals.js — Real-Time BMC Signal Generator (Legacy v2)
 
-This module implements the `CyberstarSignalGenerator` class. It is responsible for generating the **live BMC control audio** stream during browser playback — the same signal that would appear on the control tracks of a real Cyberstar showtape.
+> **v3 notice:** `cyberstar-signals.js` is a **legacy module** and is **not loaded** by `index.html`
+> in v3. The `CyberstarSignalGenerator` class and its real-time BMC streaming are not used in v3.
+> Live animation preview in v3 uses an event-driven LED stage visualisation driven by `showData`
+> events — it does **not** generate a real-time BMC signal. BMC encoding for export is handled
+> entirely by the Python SGM (`SCME/SGM/export_bridge.py`). This documentation is retained for
+> historical reference.
+
+This module implemented the `CyberstarSignalGenerator` class. It is responsible for generating the **live BMC control audio** stream during browser playback — the same signal that would appear on the control tracks of a real Cyberstar showtape.
 
 This is entirely separate from the Python-side encoder. The JS generator renders audio in real-time for the browser preview. The Python encoder (`SCME/SGM/bmc_encoder.py`) is used for the final hardware-ready export.
 

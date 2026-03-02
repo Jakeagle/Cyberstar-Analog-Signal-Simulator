@@ -8,7 +8,7 @@ No functions live here. No logic. It is the single source of truth for the bit l
 
 ## Why This File Exists
 
-Without this catalog, `app.js` and the Python SGM would need to hardcode bit positions in multiple places. Instead, any part of the system that needs to fire a movement looks it up here:
+Without this catalog, the inline SCME bridge in `index.html` and the Python SGM would need to hardcode bit positions in multiple places. Instead, any part of the system that needs to fire a movement looks it up here:
 
 ```js
 const { track, bit } = CHARACTER_MOVEMENTS["Rolfe"].movements["mouth"];
@@ -88,4 +88,11 @@ When adding a new channel, it must be added in **both places**:
 
 ## Munch's Make Believe Band
 
-The Munch band uses a different subset of bits. Most Munch characters have fewer actuators than their RAE counterparts. The file contains both band mappings, selected at runtime by `currentBand` in `app.js`.
+> **v3 note:** Munch's Make Believe Band is **not supported** in the v3 browser UI. The `_RAE_ORDER`
+> array in `index.html` contains only the nine Rock-Afire Explosion entries (Rolfe, Earl, Dook LaRue,
+> Fatz, Beach Bear, Looney Bird, Mitzi, Billy Bob, Lights). Munch band entries remain in
+> `character-movements.js` and in `SCME/SMM/constants.py` for legacy/standalone use.
+
+The Munch band uses a different subset of bits from a separate part of the TD/BD channel space.
+Most Munch characters have fewer actuators than their RAE counterparts. Band selection was
+previously controlled by `currentBand` in `app.js` (legacy v2).

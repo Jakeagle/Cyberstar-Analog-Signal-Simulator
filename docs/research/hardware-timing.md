@@ -81,12 +81,17 @@ RR-Engine operates independently when loading and playing `.rshw` files. Its int
 
 ## Browser Preview vs. Hardware Export
 
-| System                            | Baud rate | Samp/bit | Frame rate  | Use case             |
-| --------------------------------- | --------- | -------- | ----------- | -------------------- |
-| Browser JS (cyberstar-signals.js) | 4,410 bps | 10       | 45.9375 fps | Browser preview only |
-| Python SGM (export_bridge.py)     | 4,800 bps | 9        | 45.9375 fps | Hardware export      |
+> **v3 note:** `cyberstar-signals.js` is a legacy v2 module not loaded by `index.html`. In v3 there
+> is no real-time BMC browser generator; live preview uses an event-driven LED stage visualisation.
+> The baud rate information below is retained for historical reference and for understanding why the
+> two systems used different rates.
 
-The browser uses 4,410 baud because `44100 / 4410 = 10.0` exactly — an integer number of samples per bit with no rounding. This is a limitation of the Web Audio API: the API works in floating-point sample counts and scheduling, making fractional-sample-per-bit rates (like the hardware's 9.1875 samp/bit) impractical for real-time browser preview. Using 10 samples/bit gives a clean integer period that the Web Audio API can schedule without drift. The Python encoder uses the KWS-confirmed 4,800 baud for all real exports.
+| System                                         | Baud rate | Samp/bit | Frame rate  | Status               |
+| ---------------------------------------------- | --------- | -------- | ----------- | -------------------- |
+| Browser JS (cyberstar-signals.js) — **legacy** | 4,410 bps | 10       | 45.9375 fps | Legacy v2 only       |
+| Python SGM (export_bridge.py)                  | 4,800 bps | 9        | 45.9375 fps | Hardware export (v3) |
+
+The v2 browser generator used 4,410 baud because `44100 / 4410 = 10.0` exactly — an integer number of samples per bit with no rounding. This was a constraint of the Web Audio API real-time scheduler. The Python encoder uses the KWS-confirmed 4,800 baud for all real exports.
 
 > ⚠ **NEVER MIX THESE TWO SYSTEMS IN THE SAME OUTPUT FILE.**
 

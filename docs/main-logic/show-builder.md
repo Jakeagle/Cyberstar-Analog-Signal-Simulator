@@ -1,6 +1,11 @@
-# show-builder.js — Audio Analysis and Choreography Generation
+# show-builder.js — Audio Analysis and Choreography Generation (Legacy v2)
 
-`show-builder.js` is the bridge between a raw audio file and a choreographed show timeline. It exposes a single global function:
+> **v3 notice:** `show-builder.js` is a **legacy module** and is **not loaded** by `index.html` in v3.
+> The audio-analysis (SAM) pipeline described on this page is not activated from the browser UI.
+> Shows are authored manually in the piano roll editor in v3. SAM still exists in `SCME/SAM/` for
+> standalone / command-line use. This documentation is retained for historical reference.
+
+`show-builder.js` was the bridge between a raw audio file and a choreographed show timeline. It exposes a single global function:
 
 ```js
 const show = await window.buildShowWithPython(

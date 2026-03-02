@@ -1,6 +1,10 @@
-# .cso File Format — Cyberstar Online Format Specification
+# .cso File Format — Cyberstar Online Format Specification (Legacy / Removed)
 
-The `.cso` (Cyberstar Online) format is a **custom** binary file format for Cyberstar show data. It stores pre-decoded frame bitmasks and music PCM in a compact layout. A decoder for this format was planned to be built into RR-Engine, but has not been implemented yet. Currently, `.cso` files are produced by the Cyberstar Simulator as a future-ready format.
+> **v3 notice:** The `.cso` export has been **removed** from the Cyberstar Simulator v3. `cso-exporter.js`
+> is no longer loaded by `index.html`. This page documents the format specification for historical
+> reference only. To export a show for SPTE/RR-Engine, use the `.rshw` export in the 4ch Tester modal.
+
+The `.cso` (Cyberstar Online) format is a **custom** binary file format for Cyberstar show data. It stores pre-decoded frame bitmasks and music PCM in a compact layout. A decoder for this format was planned to be built into RR-Engine, but has not been implemented. **The `.cso` export was removed from the Cyberstar Simulator in v3.** This specification is preserved for reference only.
 
 ---
 

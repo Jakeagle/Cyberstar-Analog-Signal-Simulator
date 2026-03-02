@@ -13,12 +13,12 @@ The simulator does not talk directly to SPTE at runtime. There is no network pro
 ```
 Cyberstar Simulator (browser)
        │
-       │  produces one or more of:
+       │  produces:
        ▼
-┌──────────────────────────────────────────┐
-│  4-channel WAV  (.wav)                   │  Raw broadcast tape format
-│  .rshw          (NRBF binary)            │  RR-Engine legacy format
-│  .cso           (CSO1 binary)            │  Cyberstar Online custom format (planned RR-Engine decoder — not yet built)
+┌────────────────────────────────────────────┤
+│  4-channel WAV  (.wav)                   │  Raw broadcast tape format        │
+│  .rshw          (NRBF binary)            │  RR-Engine format (v3 supported)  │
+│  .cso           (CSO1 binary)            │  REMOVED in v3 — legacy format     │
 └────────────────────┬─────────────────────┘
                      │  copied to SPTE machine
                      ▼
@@ -30,12 +30,12 @@ Cyberstar Simulator (browser)
 
 ## Which Format Should I Export?
 
-| Situation                                              | Recommended Format                                               |
-| ------------------------------------------------------ | ---------------------------------------------------------------- |
-| Any version of RR-Engine                               | `.rshw` — the supported format for RR-Engine/SPTE                |
-| Future: Cyberstar Online decoder (not yet built)       | `.cso` — custom format; decoder planned but not yet in RR-Engine |
-| Testing the signal with external hardware/oscilloscope | `4-channel WAV` — raw BMC on channels 2 and 3                    |
-| Archiving/sharing                                      | `.cybershow.json` — human-readable, re-exportable                |
+| Situation                                              | Recommended Format                                                                                         |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| Any version of RR-Engine                               | `.rshw` — the supported format for RR-Engine/SPTE                                                          |
+| `.cso` format                                          | **Removed in v3** — `cso-exporter.js` is no longer loaded; see [cso-format.md](cso-format.md) for the spec |
+| Testing the signal with external hardware/oscilloscope | `4-channel WAV` — raw BMC on channels 2 and 3                                                              |
+| Archiving/sharing                                      | `.cybershow.json` — human-readable, re-exportable                                                          |
 
 ---
 

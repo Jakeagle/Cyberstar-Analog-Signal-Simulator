@@ -44,6 +44,10 @@ SCME/
 
 ## SAM — Show Analysis Module
 
+> **v3 UI note:** In v3 of the browser application, SAM is **not invoked from `index.html`**.
+> Shows are authored manually in the piano roll editor. SAM remains available for command-line
+> and offline batch processing via `SCME/SAM/show_bridge.py`.
+
 **Purpose:** Turn raw audio samples into a choreographed show timeline.
 
 **Algorithm (`show_bridge.py` → `analyze_and_choreograph()`):**

@@ -2,10 +2,9 @@
 
 The `.cybershow.json` file is the **internal lingua franca** of the Cyberstar Simulator. It is the format that:
 
-- SAM (Python) produces after audio analysis
-- The manual editor reads and writes
-- Playback engine consumes to drive the signal generator
-- The export pipeline reads to produce 4-channel WAV / .rshw / .cso
+- SAM (Python) produces after audio analysis (standalone use; SAM is not called from the browser UI in v3)
+- The piano roll editor reads and writes (primary use in v3)
+- The export pipeline reads to produce 4-channel WAV / .rshw
 
 It is a human-readable JSON file and the recommended format for sharing shows between users of the simulator.
 
@@ -49,18 +48,18 @@ It is a human-readable JSON file and the recommended format for sharing shows be
 
 ## Field Definitions
 
-| Field             | Type    | Required | Description                                                 |
-| ----------------- | ------- | -------- | ----------------------------------------------------------- |
-| `cyberstar_show`  | boolean | Yes      | Always `true`. Acts as a file type marker.                  |
-| `version`         | string  | Yes      | Format version. Current: `"3.0"`                            |
-| `title`           | string  | Yes      | Human-readable show title                                   |
-| `band`            | string  | Yes      | `"rock"` or `"munch"`                                       |
-| `duration_ms`     | integer | Yes      | Total show duration in milliseconds                         |
-| `duration_frames` | integer | Yes      | Total show duration in frames at `fps` rate                 |
-| `fps`             | integer | Yes      | Internal frame rate. Always `50` in v3.0                    |
-| `bpm`             | integer | No       | Tempo in beats per minute (from SAM analysis; 0 if unknown) |
-| `description`     | string  | No       | Free text description or generation metadata                |
-| `characters`      | object  | Yes      | Map of character names to their signal lists                |
+| Field             | Type    | Required | Description                                                                                     |
+| ----------------- | ------- | -------- | ----------------------------------------------------------------------------------------------- |
+| `cyberstar_show`  | boolean | Yes      | Always `true`. Acts as a file type marker.                                                      |
+| `version`         | string  | Yes      | Format version. Current: `"3.0"`                                                                |
+| `title`           | string  | Yes      | Human-readable show title                                                                       |
+| `band`            | string  | Yes      | `"rock"` or `"munch"` (v3 supports Rock-Afire only; `"munch"` is a legacy/standalone-SAM value) |
+| `duration_ms`     | integer | Yes      | Total show duration in milliseconds                                                             |
+| `duration_frames` | integer | Yes      | Total show duration in frames at `fps` rate                                                     |
+| `fps`             | integer | Yes      | Internal frame rate. Always `50` in v3.0                                                        |
+| `bpm`             | integer | No       | Tempo in beats per minute (set by SAM when auto-generated; 0 if not set)                        |
+| `description`     | string  | No       | Free text description or generation metadata                                                    |
+| `characters`      | object  | Yes      | Map of character names to their signal lists                                                    |
 
 ### Character Signal Entry
 
