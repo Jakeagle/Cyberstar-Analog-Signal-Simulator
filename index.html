@@ -2213,7 +2213,7 @@
         const charName = row.dataset.char;
         const movKey = row.dataset.mov;
         const rect = row.getBoundingClientRect();
-        const rawX = e.clientX - rect.left + elTimelineWrap.scrollLeft;
+        const rawX = e.clientX - rect.left;
 
         // ── Ctrl+drag → marquee selection ──────────────────────────────────
         if (e.ctrlKey || e.metaKey) {
@@ -2395,7 +2395,7 @@
         /* ── Marquee drag-select ── */
         if (dragSelectState) {
           const tracksRect = elTracks.getBoundingClientRect();
-          const rawX = e.clientX - tracksRect.left + elTimelineWrap.scrollLeft;
+          const rawX = e.clientX - tracksRect.left;
           const rawY = e.clientY - tracksRect.top;
           dragSelectState.curFrame = xToFrame(rawX);
           dragSelectState.curY = rawY;
@@ -2412,7 +2412,7 @@
         if (!dragState) return;
         const row = dragState.row;
         const rect = row.getBoundingClientRect();
-        const rawX = e.clientX - rect.left + elTimelineWrap.scrollLeft;
+        const rawX = e.clientX - rect.left;
         dragState.curFrame = snapFrame(
           xToFrame(rawX),
           e.shiftKey,
