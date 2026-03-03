@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Cyberstar Show Editor</title>
+    <title>Lychee Conductor</title>
     <script src="character-movements.js"></script>
     <style>
       *,
@@ -15,16 +15,16 @@
       }
 
       :root {
-        --bg: #0d0d1a;
-        --panel: #141428;
-        --toolbar: #1a1a2e;
-        --border: #2a2a44;
-        --text: #c8c8e0;
-        --muted: #666680;
-        --ruler-bg: #111122;
-        --row-bg: #12121f;
-        --row-alt: #0f0f1c;
-        --row-hover: #1a1a30;
+        --bg: #0a0010;
+        --panel: #100018;
+        --toolbar: #14001e;
+        --border: #2a0040;
+        --text: #d8bcf0;
+        --muted: #624878;
+        --ruler-bg: #0e0014;
+        --row-bg: #0f0016;
+        --row-alt: #0c0013;
+        --row-hover: #160020;
         --sel: #ffffff;
         --ruler-h: 44px;
         --label-w: 200px;
@@ -78,7 +78,7 @@
       #show-title {
         font-size: 0.95em;
         font-weight: 600;
-        color: #ddeeff;
+        color: #eebbff;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -93,9 +93,9 @@
         flex-shrink: 0;
       }
       .band-rock {
-        background: rgba(0, 200, 255, 0.15);
-        color: #00c8ff;
-        border: 1px solid #00c8ff44;
+        background: rgba(192, 96, 255, 0.15);
+        color: #be55ff;
+        border: 1px solid #be55ff44;
       }
 
       input[type="file"] {
@@ -182,7 +182,7 @@
       }
       .empty-inner h2 {
         font-size: 1.4em;
-        color: #ddeeff;
+        color: #eebbff;
         margin-bottom: 10px;
       }
       .empty-inner p {
@@ -502,17 +502,17 @@
         height: 8px;
       }
       #timeline-wrap::-webkit-scrollbar-track {
-        background: #0d0d1a;
+        background: #0a0010;
       }
       #timeline-wrap::-webkit-scrollbar-thumb {
-        background: #2a2a44;
+        background: #2a0040;
         border-radius: 4px;
       }
       #timeline-wrap::-webkit-scrollbar-thumb:hover {
         background: #3a3a60;
       }
       #timeline-wrap::-webkit-scrollbar-corner {
-        background: #0d0d1a;
+        background: #0a0010;
       }
 
       /* ── NEW SHOW MODAL ──────────────────────────────────────── */
@@ -529,8 +529,8 @@
         display: flex;
       }
       #new-show-modal {
-        background: #1a1a2e;
-        border: 1px solid #2a2a44;
+        background: #14001e;
+        border: 1px solid #2a0040;
         border-radius: 10px;
         padding: 28px 32px;
         width: 380px;
@@ -539,7 +539,7 @@
       }
       #new-show-modal h3 {
         font-size: 1.15em;
-        color: #ddeeff;
+        color: #eebbff;
         margin-bottom: 20px;
         display: flex;
         align-items: center;
@@ -559,10 +559,10 @@
       }
       .ns-field input,
       .ns-field select {
-        background: #0d0d1a;
-        border: 1px solid #2a2a44;
+        background: #0a0010;
+        border: 1px solid #2a0040;
         border-radius: 5px;
-        color: #c8c8e0;
+        color: #d8bcf0;
         padding: 7px 10px;
         font-size: 0.92em;
         outline: none;
@@ -570,7 +570,7 @@
       }
       .ns-field input:focus,
       .ns-field select:focus {
-        border-color: #00c8ff88;
+        border-color: #be55ff88;
       }
       .ns-dur-row {
         display: flex;
@@ -582,7 +582,7 @@
       }
       .ns-dur-sep {
         align-self: center;
-        color: #666680;
+        color: #624878;
         font-size: 1.1em;
       }
       .ns-actions {
@@ -594,7 +594,7 @@
         flex: 1;
         padding: 8px;
         border-radius: 5px;
-        border: 1px solid #2a2a44;
+        border: 1px solid #2a0040;
         cursor: pointer;
         font-size: 0.88em;
         font-weight: 600;
@@ -631,10 +631,10 @@
         display: flex;
       }
       #tester-modal {
-        background: linear-gradient(180deg, #0a0a1a 0%, #1a1a2e 100%);
-        border: 1px solid #00d4ff;
+        background: linear-gradient(180deg, #0a0a1a 0%, #14001e 100%);
+        border: 1px solid #c060ff;
         border-radius: 12px;
-        box-shadow: 0 0 50px rgba(0, 212, 255, 0.2);
+        box-shadow: 0 0 50px rgba(192, 96, 255, 0.2);
         width: 95%;
         max-width: 1400px;
         padding: 28px 30px;
@@ -647,12 +647,12 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        border-bottom: 1px solid rgba(0, 212, 255, 0.3);
+        border-bottom: 1px solid rgba(192, 96, 255, 0.3);
         padding-bottom: 14px;
       }
       #tester-header h2 {
         font-size: 1.15em;
-        color: #00d4ff;
+        color: #c060ff;
         margin: 0;
       }
       #tester-close {
@@ -675,7 +675,7 @@
         background: rgba(0, 0, 0, 0.4);
         padding: 30px 20px;
         border-radius: 8px;
-        border: 1px dashed rgba(0, 212, 255, 0.2);
+        border: 1px dashed rgba(192, 96, 255, 0.2);
         min-height: 160px;
       }
       #tester-controls {
@@ -687,7 +687,7 @@
       #tester-progress {
         flex: 1;
         min-width: 120px;
-        accent-color: #00d4ff;
+        accent-color: #c060ff;
       }
       #tester-time {
         font-size: 0.82em;
@@ -715,7 +715,7 @@
       }
       .tester-vol-slider {
         width: 110px;
-        accent-color: #00d4ff;
+        accent-color: #c060ff;
         cursor: pointer;
       }
       .tester-vol-slider.signals {
@@ -771,7 +771,7 @@
       }
       .tester-val-badge.pending {
         color: var(--muted);
-        border-color: #2a2a44;
+        border-color: #2a0040;
       }
       .tester-val-badge.pass {
         color: #4caf50;
@@ -796,8 +796,8 @@
         display: none;
       }
       .ed-py-box {
-        background: #141428;
-        border: 1px solid #2a2a44;
+        background: #100018;
+        border: 1px solid #2a0040;
         border-radius: 10px;
         padding: 28px 32px;
         width: 360px;
@@ -811,8 +811,8 @@
       .ed-py-spinner {
         width: 34px;
         height: 34px;
-        border: 3px solid #2a2a44;
-        border-top-color: #00d4ff;
+        border: 3px solid #2a0040;
+        border-top-color: #c060ff;
         border-radius: 50%;
         animation: ed-spin 0.8s linear infinite;
       }
@@ -824,7 +824,7 @@
       .ed-py-title {
         font-size: 1em;
         font-weight: 600;
-        color: #ddeeff;
+        color: #eebbff;
         margin: 0;
         text-align: center;
       }
@@ -837,14 +837,14 @@
       }
       .ed-py-track {
         width: 100%;
-        background: #0d0d1a;
+        background: #0a0010;
         border-radius: 4px;
         height: 6px;
         overflow: hidden;
       }
       .ed-py-bar {
         height: 100%;
-        background: #00d4ff;
+        background: #c060ff;
         border-radius: 4px;
         transition: width 0.25s ease;
       }
@@ -853,7 +853,7 @@
       .tester-character {
         width: 200px;
         background: rgba(255, 255, 255, 0.02);
-        border: 1px solid rgba(0, 212, 255, 0.2);
+        border: 1px solid rgba(192, 96, 255, 0.2);
         border-radius: 10px;
         display: flex;
         flex-direction: column;
@@ -862,13 +862,13 @@
         transition: border-color 0.2s;
       }
       .tester-char-header {
-        background: rgba(0, 212, 255, 0.07);
+        background: rgba(192, 96, 255, 0.07);
         padding: 10px 12px;
-        border-bottom: 1px solid rgba(0, 212, 255, 0.15);
+        border-bottom: 1px solid rgba(192, 96, 255, 0.15);
       }
       .tester-char-header h3 {
         font-size: 0.78em;
-        color: #00d4ff;
+        color: #c060ff;
         text-transform: uppercase;
         letter-spacing: 1px;
         margin: 0;
@@ -892,8 +892,8 @@
         transition: background 0.15s;
       }
       .tester-movement.active {
-        background: rgba(0, 212, 255, 0.15);
-        color: #00d4ff;
+        background: rgba(192, 96, 255, 0.15);
+        color: #c060ff;
       }
       .tester-mov-name {
         color: var(--muted);
@@ -902,15 +902,15 @@
         width: 8px;
         height: 8px;
         border-radius: 50%;
-        background: #1a1a30;
-        border: 1px solid #2a2a44;
+        background: #160020;
+        border: 1px solid #2a0040;
         transition:
           background 0.1s,
           box-shadow 0.1s;
       }
       .tester-movement.active .tester-mov-led {
-        background: #00d4ff;
-        box-shadow: 0 0 6px #00d4ff;
+        background: #c060ff;
+        box-shadow: 0 0 6px #c060ff;
       }
 
       /* ── SAVED SHOWS MODAL ───────────────────────────────────── */
@@ -927,8 +927,8 @@
         display: flex;
       }
       #saved-shows-modal {
-        background: #1a1a2e;
-        border: 1px solid #2a2a44;
+        background: #14001e;
+        border: 1px solid #2a0040;
         border-radius: 10px;
         padding: 24px 28px;
         width: 520px;
@@ -940,7 +940,7 @@
       }
       #saved-shows-modal h3 {
         font-size: 1.1em;
-        color: #ddeeff;
+        color: #eebbff;
         margin-bottom: 16px;
         flex-shrink: 0;
       }
@@ -957,10 +957,10 @@
         width: 6px;
       }
       #ss-list::-webkit-scrollbar-track {
-        background: #0d0d1a;
+        background: #0a0010;
       }
       #ss-list::-webkit-scrollbar-thumb {
-        background: #2a2a44;
+        background: #2a0040;
         border-radius: 3px;
       }
       .ss-item {
@@ -969,7 +969,7 @@
         justify-content: space-between;
         gap: 12px;
         background: rgba(255, 255, 255, 0.03);
-        border: 1px solid #2a2a44;
+        border: 1px solid #2a0040;
         border-radius: 6px;
         padding: 10px 12px;
       }
@@ -985,7 +985,7 @@
       .ss-item-title {
         font-size: 0.92em;
         font-weight: 600;
-        color: #c8c8e0;
+        color: #d8bcf0;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -1013,88 +1013,49 @@
         left: 0;
         width: 100%;
         height: 100vh;
-        background: black;
+        background: #000000;
         z-index: 10000;
         display: flex;
         justify-content: center;
         align-items: center;
-        transition:
-          opacity 1s ease-in-out,
-          transform 1s ease-in-out;
-        cursor: pointer;
         overflow: hidden;
-      }
-      .intro-video {
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-        opacity: 0;
-        transition: opacity 0.5s ease;
-      }
-      .intro-video.video-playing {
         opacity: 1;
+        transition: opacity 1.2s ease-in-out;
       }
-      .intro-prompt {
-        position: absolute;
-        text-align: center;
-        color: #00d4ff;
-        font-family: "Courier New", monospace;
-        text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
-        transition: opacity 0.3s ease;
-      }
-      .power-icon {
-        font-size: 80px;
-        margin-bottom: 20px;
-        animation: pulse-glow 2s infinite ease-in-out;
-      }
-      @keyframes pulse-glow {
-        0% {
-          text-shadow: 0 0 10px rgba(0, 212, 255, 0.4);
-          transform: scale(1);
-        }
-        50% {
-          text-shadow: 0 0 30px rgba(0, 212, 255, 0.8);
-          transform: scale(1.05);
-        }
-        100% {
-          text-shadow: 0 0 10px rgba(0, 212, 255, 0.4);
-          transform: scale(1);
-        }
-      }
-      .skip-intro {
-        position: absolute;
-        bottom: 20px;
-        right: 20px;
-        color: rgba(255, 255, 255, 0.4);
-        font-family: "Courier New", monospace;
-        font-size: 0.8em;
-        text-transform: uppercase;
-        letter-spacing: 2px;
+      .intro-logo {
+        max-width: 420px;
+        max-height: 420px;
+        width: 40vw;
+        height: auto;
+        opacity: 0;
+        transform: scale(0.92);
+        transition:
+          opacity 1.2s ease,
+          transform 1.2s ease;
+        user-select: none;
         pointer-events: none;
+        filter: drop-shadow(0 0 40px rgba(192, 96, 255, 0.5));
+      }
+      .intro-logo.logo-visible {
+        opacity: 1;
+        transform: scale(1);
       }
       .intro-hidden {
         opacity: 0;
         pointer-events: none;
-        transform: scale(1.1);
       }
     </style>
   </head>
   <body>
-    <!-- Cyberstar Intro Overlay -->
-    <div id="intro-overlay" class="intro-overlay" style="cursor: pointer">
-      <video
-        id="intro-video"
-        class="intro-video"
-        src="Cyberstar Intro (HD).mp4"
-        playsinline
-      ></video>
-      <div id="intro-prompt" class="intro-prompt">
-        <div class="power-icon">⏻</div>
-        <p>POWER ON CYBERSTAR</p>
-      </div>
-      <div id="skip-intro" class="skip-intro" style="display: none">
-        Click to skip
-      </div>
+    <!-- Lychee Interactive Intro Overlay -->
+    <div id="intro-overlay" class="intro-overlay">
+      <img
+        id="intro-logo"
+        class="intro-logo"
+        src="ChatGPT Image Oct 20, 2025, 01_14_23 PM.png"
+        alt="Lychee Interactive"
+        draggable="false"
+      />
     </div>
 
     <div id="app">
@@ -1178,7 +1139,7 @@
       <div id="empty-state">
         <div class="empty-inner">
           <div class="empty-icon">🎬</div>
-          <h2>Cyberstar Show Editor</h2>
+          <h2>Lychee Conductor</h2>
           <p>
             Start a brand-new show, or load a previously saved show from the
             <strong>📁 Saved Shows</strong> list.
@@ -1246,7 +1207,7 @@
             <input
               id="ns-title"
               type="text"
-              placeholder="My Cyberstar Show"
+              placeholder="My Lychee Show"
               maxlength="80"
             />
           </div>
@@ -1291,7 +1252,7 @@
           <p style="font-size: 0.82em; color: var(--muted); margin: 0">
             Preview your show live from the editor — signals and music play
             together in real time. To export a
-            <strong style="color: #ddeeff">.rshw</strong>, first export a 4ch
+            <strong style="color: #eebbff">.rshw</strong>, first export a 4ch
             WAV, then upload it below to validate the BMC encoding.
           </p>
 
@@ -1443,7 +1404,7 @@
       };
 
       const CHAR_COLORS = {
-        Rolfe: "#00c8ff",
+        Rolfe: "#be55ff",
         Earl: "#ff9800",
         "Dook LaRue": "#4caf50",
         Fatz: "#b44ff4",
@@ -3120,7 +3081,7 @@
         canvas.height = RULER_H;
         const ctx = canvas.getContext("2d");
 
-        ctx.fillStyle = "#111122";
+        ctx.fillStyle = "#0e0014";
         ctx.fillRect(0, 0, viewW, RULER_H);
 
         // Choose a nice tick interval so major ticks are ~80–200px apart
@@ -4094,7 +4055,7 @@
         }
 
         const _TCHAR_COLORS = {
-          Rolfe: "#00c8ff",
+          Rolfe: "#be55ff",
           Earl: "#ff9800",
           "Dook LaRue": "#4caf50",
           Fatz: "#b44ff4",
@@ -4581,44 +4542,34 @@ _rshw_result`,
     </script>
 
     <script>
-      /* ── Intro overlay — self-contained, independent of app.js ── */
+      /* ── Intro overlay — Lychee Interactive logo fade ── */
       (function () {
         var overlay = document.getElementById("intro-overlay");
-        var video = document.getElementById("intro-video");
-        var prompt = document.getElementById("intro-prompt");
-        var skip = document.getElementById("skip-intro");
+        var logo = document.getElementById("intro-logo");
 
         function dismiss() {
           if (overlay.classList.contains("intro-hidden")) return;
-          overlay.classList.add("intro-hidden");
-          video.pause();
+          // Fade logo out first
+          logo.classList.remove("logo-visible");
+          // Then fade the whole overlay out
           setTimeout(function () {
-            overlay.style.display = "none";
-          }, 1000);
+            overlay.classList.add("intro-hidden");
+            setTimeout(function () {
+              overlay.style.display = "none";
+            }, 1300);
+          }, 600);
         }
 
-        function startIntro() {
-          if (video.paused) {
-            video
-              .play()
-              .then(function () {
-                prompt.style.opacity = "0";
-                setTimeout(function () {
-                  prompt.style.display = "none";
-                  skip.style.display = "block";
-                }, 300);
-                video.classList.add("video-playing");
-              })
-              .catch(function (err) {
-                console.log("Intro video play blocked:", err);
-              });
-          } else {
-            dismiss();
-          }
-        }
+        // Fade logo in shortly after page load
+        setTimeout(function () {
+          logo.classList.add("logo-visible");
+        }, 200);
 
-        video.addEventListener("ended", dismiss);
-        overlay.addEventListener("click", startIntro);
+        // Auto-dismiss after logo has been fully visible for ~2.8 s
+        setTimeout(dismiss, 3600);
+
+        // Also allow click to skip
+        overlay.addEventListener("click", dismiss);
       })();
     </script>
   </body>

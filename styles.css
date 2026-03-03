@@ -1,5 +1,5 @@
 /**
- * Cyberstar Simulator - Styles
+ * Lychee Conductor - Styles
  */
 
 * {
@@ -10,7 +10,7 @@
 
 body {
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  background: linear-gradient(135deg, #0e0014 0%, #130018 100%);
   color: #e0e0e0;
   line-height: 1.6;
   min-height: 100vh;
@@ -56,9 +56,9 @@ body {
 .intro-prompt {
   position: absolute;
   text-align: center;
-  color: #00d4ff;
+  color: #c060ff;
   font-family: "Courier New", monospace;
-  text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+  text-shadow: 0 0 10px rgba(192, 96, 255, 0.5);
   transition: opacity 0.3s ease;
 }
 
@@ -70,15 +70,15 @@ body {
 
 @keyframes pulse-glow {
   0% {
-    text-shadow: 0 0 10px rgba(0, 212, 255, 0.4);
+    text-shadow: 0 0 10px rgba(192, 96, 255, 0.4);
     transform: scale(1);
   }
   50% {
-    text-shadow: 0 0 30px rgba(0, 212, 255, 0.8);
+    text-shadow: 0 0 30px rgba(192, 96, 255, 0.8);
     transform: scale(1.05);
   }
   100% {
-    text-shadow: 0 0 10px rgba(0, 212, 255, 0.4);
+    text-shadow: 0 0 10px rgba(192, 96, 255, 0.4);
     transform: scale(1);
   }
 }
@@ -129,20 +129,20 @@ header {
   text-align: center;
   margin-bottom: 40px;
   padding: 30px 0;
-  border-bottom: 2px solid #00d4ff;
+  border-bottom: 2px solid #c060ff;
 }
 
 .band-selector {
   margin-top: 20px;
   padding-top: 20px;
-  border-top: 1px solid rgba(0, 212, 255, 0.3);
+  border-top: 1px solid rgba(192, 96, 255, 0.3);
 }
 
 .band-selector label {
   display: inline-block;
   margin-right: 15px;
   margin-bottom: 0;
-  color: #00d4ff;
+  color: #c060ff;
   font-weight: 600;
   text-transform: uppercase;
   font-size: 0.95em;
@@ -154,10 +154,10 @@ header {
   width: auto;
   margin: 0;
   padding: 10px 15px;
-  background: rgba(0, 212, 255, 0.1);
-  border: 2px solid #00d4ff;
+  background: rgba(192, 96, 255, 0.1);
+  border: 2px solid #c060ff;
   border-radius: 4px;
-  color: #00d4ff;
+  color: #c060ff;
   font-size: 1em;
   font-weight: 600;
   cursor: pointer;
@@ -166,21 +166,21 @@ header {
 }
 
 .band-selector select:hover {
-  background: rgba(0, 212, 255, 0.2);
-  box-shadow: 0 0 15px rgba(0, 212, 255, 0.3);
+  background: rgba(192, 96, 255, 0.2);
+  box-shadow: 0 0 15px rgba(192, 96, 255, 0.3);
 }
 
 .band-selector select:focus {
   outline: none;
-  background: rgba(0, 212, 255, 0.15);
-  box-shadow: 0 0 20px rgba(0, 212, 255, 0.4);
+  background: rgba(192, 96, 255, 0.15);
+  box-shadow: 0 0 20px rgba(192, 96, 255, 0.4);
 }
 
 h1 {
   font-size: 2.5em;
-  color: #00d4ff;
+  color: #c060ff;
   margin-bottom: 10px;
-  text-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
+  text-shadow: 0 0 10px rgba(192, 96, 255, 0.3);
   letter-spacing: 2px;
 }
 
@@ -191,17 +191,17 @@ h1 {
 }
 
 .subtitle-info {
-  color: #80a0a0;
+  color: #9a70b5;
   font-size: 0.95em;
   font-style: italic;
   margin-top: 5px;
 }
 
 h2 {
-  color: #00d4ff;
+  color: #c060ff;
   margin-bottom: 20px;
   font-size: 1.5em;
-  border-bottom: 1px solid #00d4ff;
+  border-bottom: 1px solid #c060ff;
   padding-bottom: 10px;
 }
 
@@ -219,12 +219,12 @@ main {
 }
 
 .control-panel {
-  background: rgba(22, 33, 62, 0.8);
-  border: 1px solid #00d4ff;
+  background: rgba(18, 0, 28, 0.8);
+  border: 1px solid #c060ff;
   border-radius: 8px;
   padding: 25px;
   backdrop-filter: blur(10px);
-  box-shadow: 0 8px 32px rgba(0, 212, 255, 0.1);
+  box-shadow: 0 8px 32px rgba(192, 96, 255, 0.1);
 }
 
 .control-panel:last-child {
@@ -234,7 +234,7 @@ main {
 label {
   display: block;
   margin-bottom: 8px;
-  color: #00d4ff;
+  color: #c060ff;
   font-weight: 600;
   text-transform: uppercase;
   font-size: 0.9em;
@@ -248,7 +248,7 @@ select {
   padding: 12px;
   margin-bottom: 15px;
   background: rgba(0, 0, 0, 0.3);
-  border: 1px solid #00d4ff;
+  border: 1px solid #c060ff;
   border-radius: 4px;
   color: #e0e0e0;
   font-size: 1em;
@@ -259,9 +259,9 @@ input[type="text"]:focus,
 input[type="number"]:focus,
 select:focus {
   outline: none;
-  background: rgba(0, 212, 255, 0.1);
-  border-color: #00ffff;
-  box-shadow: 0 0 10px rgba(0, 212, 255, 0.2);
+  background: rgba(192, 96, 255, 0.1);
+  border-color: #d880ff;
+  box-shadow: 0 0 10px rgba(192, 96, 255, 0.2);
 }
 
 input[type="range"] {
@@ -269,16 +269,16 @@ input[type="range"] {
   height: 6px;
   margin: 10px 0;
   cursor: pointer;
-  accent-color: #00d4ff;
+  accent-color: #c060ff;
 }
 
 /* Button Styles */
 .btn {
   padding: 12px 24px;
-  border: 1px solid #00d4ff;
+  border: 1px solid #c060ff;
   border-radius: 4px;
-  background: rgba(0, 212, 255, 0.1);
-  color: #00d4ff;
+  background: rgba(192, 96, 255, 0.1);
+  color: #c060ff;
   cursor: pointer;
   font-weight: 600;
   font-size: 0.95em;
@@ -290,8 +290,8 @@ input[type="range"] {
 }
 
 .btn:hover {
-  background: rgba(0, 212, 255, 0.2);
-  box-shadow: 0 0 15px rgba(0, 212, 255, 0.3);
+  background: rgba(192, 96, 255, 0.2);
+  box-shadow: 0 0 15px rgba(192, 96, 255, 0.3);
   transform: translateY(-2px);
 }
 
@@ -300,15 +300,15 @@ input[type="range"] {
 }
 
 .btn-primary {
-  background: #00d4ff;
-  color: #1a1a2e;
-  border-color: #00d4ff;
+  background: #c060ff;
+  color: #0e0014;
+  border-color: #c060ff;
   font-weight: 700;
 }
 
 .btn-primary:hover {
-  background: #00ffff;
-  box-shadow: 0 0 20px rgba(0, 255, 255, 0.4);
+  background: #d880ff;
+  box-shadow: 0 0 20px rgba(216, 128, 255, 0.4);
 }
 
 .btn-signal {
@@ -364,7 +364,7 @@ input[type="range"] {
 }
 
 #time-display {
-  color: #00d4ff;
+  color: #c060ff;
   font-weight: 600;
   min-width: 120px;
   text-align: right;
@@ -389,15 +389,15 @@ input[type="range"] {
 }
 
 #volume-display {
-  color: #00d4ff;
+  color: #c060ff;
   font-weight: 600;
   text-align: right;
 }
 
 .tape-info {
   padding: 15px;
-  background: rgba(0, 212, 255, 0.05);
-  border-left: 3px solid #00d4ff;
+  background: rgba(192, 96, 255, 0.05);
+  border-left: 3px solid #c060ff;
   border-radius: 4px;
   margin-top: 20px;
 }
@@ -415,7 +415,7 @@ input[type="range"] {
 .bmc-info {
   margin-top: 10px !important;
   font-size: 0.9em;
-  color: #a0d0d0;
+  color: #bb90d8;
   font-style: italic;
 }
 
@@ -438,7 +438,7 @@ input[type="range"] {
 .song-sync-info {
   margin: 0 0 10px 0;
   font-size: 0.82em;
-  color: #a0d0d0;
+  color: #bb90d8;
   line-height: 1.4;
 }
 
@@ -493,13 +493,13 @@ input[type="range"] {
 .channel-control {
   padding: 15px;
   background: rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(0, 212, 255, 0.3);
+  border: 1px solid rgba(192, 96, 255, 0.3);
   border-radius: 4px;
 }
 
 .channel-control label {
   margin-bottom: 10px;
-  color: #00d4ff;
+  color: #c060ff;
   font-weight: 600;
 }
 
@@ -563,31 +563,31 @@ input[type="range"] {
 
 .character-monitor {
   background: rgba(0, 20, 40, 0.6);
-  border: 1px solid #00d4ff;
+  border: 1px solid #c060ff;
   border-radius: 6px;
   padding: 0;
   overflow: hidden;
-  box-shadow: 0 4px 15px rgba(0, 212, 255, 0.1);
+  box-shadow: 0 4px 15px rgba(192, 96, 255, 0.1);
   transition: all 0.3s ease;
 }
 
 .character-monitor:hover {
-  border-color: #00ffff;
-  box-shadow: 0 6px 20px rgba(0, 212, 255, 0.2);
+  border-color: #d880ff;
+  box-shadow: 0 6px 20px rgba(192, 96, 255, 0.2);
   transform: translateY(-2px);
 }
 
 .character-header {
   background: linear-gradient(
     135deg,
-    rgba(0, 212, 255, 0.2) 0%,
-    rgba(0, 212, 255, 0.05) 100%
+    rgba(192, 96, 255, 0.2) 0%,
+    rgba(192, 96, 255, 0.05) 100%
   );
-  border-bottom: 2px solid #00d4ff;
+  border-bottom: 2px solid #c060ff;
   padding: 12px;
   font-weight: 700;
-  color: #00ffff;
-  text-shadow: 0 0 8px rgba(0, 255, 255, 0.3);
+  color: #d880ff;
+  text-shadow: 0 0 8px rgba(216, 128, 255, 0.3);
   letter-spacing: 1px;
   text-align: center;
 }
@@ -626,22 +626,22 @@ input[type="range"] {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #00d4ff;
+  background: #c060ff;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #00ffff;
+  background: #d880ff;
 }
 
 /* Animations */
 @keyframes pulse-glow {
   0%,
   100% {
-    text-shadow: 0 0 5px rgba(0, 212, 255, 0.3);
+    text-shadow: 0 0 5px rgba(192, 96, 255, 0.3);
   }
   50% {
-    text-shadow: 0 0 15px rgba(0, 212, 255, 0.6);
+    text-shadow: 0 0 15px rgba(192, 96, 255, 0.6);
   }
 }
 
@@ -940,18 +940,18 @@ h1 {
   background: rgba(0, 0, 0, 0.4);
   padding: 15px;
   border-radius: 8px;
-  border-left: 4px solid #00d4ff;
+  border-left: 4px solid #c060ff;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
 }
 
 .track-monitor h4 {
-  color: #00d4ff;
+  color: #c060ff;
   margin-bottom: 12px;
   text-transform: uppercase;
   letter-spacing: 2px;
   font-size: 0.85em;
   opacity: 0.8;
-  border-bottom: 1px solid rgba(0, 212, 255, 0.15);
+  border-bottom: 1px solid rgba(192, 96, 255, 0.15);
   padding-bottom: 6px;
 }
 
@@ -968,7 +968,7 @@ h1 {
   background: rgba(255, 255, 255, 0.035);
   padding: 6px 12px;
   border-radius: 4px;
-  border: 1px solid rgba(0, 212, 255, 0.08);
+  border: 1px solid rgba(192, 96, 255, 0.08);
 }
 
 .led-label {
@@ -1029,14 +1029,14 @@ h1 {
 }
 
 .stage-modal-content {
-  background: linear-gradient(180deg, #0a0a1a 0%, #1a1a2e 100%);
+  background: linear-gradient(180deg, #0a0a1a 0%, #0e0014 100%);
   margin: 5vh auto;
   padding: 30px;
   width: 95%;
   max-width: 1400px;
   border-radius: 12px;
-  border: 1px solid #00d4ff;
-  box-shadow: 0 0 50px rgba(0, 212, 255, 0.2);
+  border: 1px solid #c060ff;
+  box-shadow: 0 0 50px rgba(192, 96, 255, 0.2);
 }
 
 .modal-header {
@@ -1044,7 +1044,7 @@ h1 {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
-  border-bottom: 1px solid rgba(0, 212, 255, 0.3);
+  border-bottom: 1px solid rgba(192, 96, 255, 0.3);
   padding-bottom: 15px;
 }
 
@@ -1075,14 +1075,14 @@ h1 {
   background: rgba(0, 0, 0, 0.4);
   padding: 30px 20px;
   border-radius: 8px;
-  border: 1px dashed rgba(0, 212, 255, 0.2);
+  border: 1px dashed rgba(192, 96, 255, 0.2);
 }
 
 /* ── Character card ── */
 .stage-character {
   width: 200px;
   background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(0, 212, 255, 0.2);
+  border: 1px solid rgba(192, 96, 255, 0.2);
   border-radius: 10px;
   display: flex;
   flex-direction: column;
@@ -1092,18 +1092,18 @@ h1 {
 }
 
 .stage-character:hover {
-  border-color: rgba(0, 212, 255, 0.5);
+  border-color: rgba(192, 96, 255, 0.5);
 }
 
 .stage-char-header {
-  background: rgba(0, 212, 255, 0.07);
+  background: rgba(192, 96, 255, 0.07);
   padding: 10px 12px;
-  border-bottom: 1px solid rgba(0, 212, 255, 0.15);
+  border-bottom: 1px solid rgba(192, 96, 255, 0.15);
 }
 
 .stage-char-header h3 {
   font-size: 0.78em;
-  color: #00d4ff;
+  color: #c060ff;
   text-transform: uppercase;
   letter-spacing: 1px;
   margin: 0;
@@ -1210,13 +1210,13 @@ h1 {
   background: rgba(0, 0, 0, 0.4);
   padding: 5px 12px;
   border-radius: 20px;
-  border: 1px solid rgba(0, 212, 255, 0.2);
+  border: 1px solid rgba(192, 96, 255, 0.2);
 }
 
 .sync-label {
   font-family: var(--font-mono);
   font-size: 0.75em;
-  color: #00d4ff;
+  color: #c060ff;
   letter-spacing: 1px;
 }
 
@@ -1282,15 +1282,15 @@ h1 {
   flex-wrap: wrap;
   margin-bottom: 16px;
   padding: 12px 14px;
-  background: rgba(0, 212, 255, 0.05);
-  border: 1px solid rgba(0, 212, 255, 0.25);
+  background: rgba(192, 96, 255, 0.05);
+  border: 1px solid rgba(192, 96, 255, 0.25);
   border-radius: 6px;
 }
 
 .st-band-label {
   display: inline;
   margin-bottom: 0;
-  color: #00d4ff;
+  color: #c060ff;
   font-weight: 700;
   text-transform: uppercase;
   font-size: 0.85em;
@@ -1304,7 +1304,7 @@ h1 {
   padding: 8px 12px;
   margin-bottom: 0;
   background: rgba(0, 0, 0, 0.3);
-  border: 1px solid #00d4ff;
+  border: 1px solid #c060ff;
   border-radius: 4px;
   color: #e0e0e0;
   font-size: 0.95em;
@@ -1313,8 +1313,8 @@ h1 {
 
 .st-band-select:focus {
   outline: none;
-  border-color: #00ffff;
-  box-shadow: 0 0 10px rgba(0, 212, 255, 0.25);
+  border-color: #d880ff;
+  box-shadow: 0 0 10px rgba(192, 96, 255, 0.25);
 }
 
 .st-band-hint {
@@ -1362,7 +1362,7 @@ h1 {
   margin-top: 14px;
   padding: 10px 14px;
   background: rgba(0, 0, 0, 0.25);
-  border-left: 3px solid #00d4ff;
+  border-left: 3px solid #c060ff;
   border-radius: 0 4px 4px 0;
   font-family: "Courier New", monospace;
   font-size: 0.88em;
@@ -1371,7 +1371,7 @@ h1 {
 }
 
 .st-time {
-  color: #00d4ff;
+  color: #c060ff;
   font-weight: 600;
   min-width: 130px;
   text-align: right;
@@ -1623,7 +1623,7 @@ h1 {
   height: 52px;
   border-radius: 50%;
   border: 4px solid rgba(0, 200, 255, 0.15);
-  border-top-color: #00c8ff;
+  border-top-color: #be55ff;
   animation: py-spin 0.85s linear infinite;
 }
 @keyframes py-spin {
@@ -1660,7 +1660,7 @@ h1 {
 
 .py-modal-bar {
   height: 100%;
-  background: linear-gradient(90deg, #0090d0 0%, #00c8ff 100%);
+  background: linear-gradient(90deg, #0090d0 0%, #be55ff 100%);
   border-radius: 3px;
   transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 0 8px rgba(0, 200, 255, 0.55);
