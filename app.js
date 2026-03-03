@@ -822,7 +822,7 @@ function renderCustomShowList() {
       <div class="custom-show-actions">
         <button class="btn btn-sm" onclick="selectAndPlayCustomShow('${tape.id}')">&#9654; Play</button>
         <button class="btn btn-sm btn-danger" onclick="deleteCustomShowtape('${tape.id}')">&#10005; Delete</button>
-        <button class="btn btn-sm btn-export" onclick="exportShowJSON('${tape.id}')">&#8595; Export JSON</button>
+        <button class="btn btn-sm btn-export" onclick="exportShowJSON('${tape.id}')">&#8595; Export .lcsf</button>
       </div>
     </div>`,
     )
@@ -920,7 +920,7 @@ function exportShowJSON(id) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${tape.title.replace(/[^a-z0-9_\-]/gi, "_")}.cybershow.json`;
+  a.download = `${tape.title.replace(/[^a-z0-9_\-]/gi, "_")}.lcsf`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -945,7 +945,7 @@ function importShowJSON(file, wavFile) {
 
       // ── Basic validation ─────────────────────────────────────────────────
       if (!obj.cyberstar_show)
-        throw new Error("Not a valid .cybershow.json file.");
+        throw new Error("Not a valid show file (.lcsf or .cybershow.json).");
       if (!obj.band || !["rock", "munch"].includes(obj.band))
         throw new Error(
           'Missing or invalid "band" field. Must be "rock" or "munch".',
@@ -1089,7 +1089,8 @@ function importShowJSON(file, wavFile) {
       const id = `imported-${Date.now()}`;
       const tape = {
         id,
-        title: obj.title || file.name.replace(/\.cybershow\.json$/i, ""),
+        title:
+          obj.title || file.name.replace(/\.lcsf$|\.cybershow\.json$/i, ""),
         description: obj.description || `Imported from ${file.name}`,
         band: obj.band,
         bpm: obj.bpm || null,

@@ -1,5 +1,7 @@
 # Lychee Conductor — Documentation
 
+> **v3.2 — Backup & Recovery + .lcsf format:** v3.2 adds the Backup & Recovery modal (toolbar button 🗄️). `.lcsf` (Lychee Conductor Show File) is now the standard show file format — same JSON structure as `.cybershow.json`, new extension. The right panel of the modal includes a 4ch WAV recovery tool that decodes BMC signals and rebuilds show choreography in the editor.
+
 > **v3.1 — Rebrand:** This project was formerly known as **Cyberstar Simulator**. As of v3.1 it has been rebranded to **Lychee Conductor** by [Lychee Interactive](https://github.com/Jakeagle/Cyberstar-Analog-Signal-Simulator). All user-facing names have been updated; internal format identifiers (e.g. `.cybershow.json`, `cyberstar_show` keys) remain unchanged for compatibility. References to _Cyberstar hardware_, _Cyberstar Online (CSO format)_, and `CyberstarSignalGenerator` throughout these docs refer to the **animatronic hardware ecosystem**, not the app.
 
 Welcome to the project documentation. This folder covers everything about how the Lychee Conductor works, from the browser UI down to the BitArray that gets written into an `.rshw` file.
@@ -77,7 +79,8 @@ The core challenge is translating a choreography timeline (character movements a
 | **BD**              | Bass Data — the second control signal track (96 channels, e.g. Beach Bear, Mitzi, Billy Bob)       |
 | **Frame**           | One 96-bit BMC packet sent at 45.9375 fps; contains the on/off state of every actuator             |
 | **.rshw**           | RR-Engine's legacy NRBF binary showtape format                                                     |
-| **.cybershow.json** | Internal show format used inside the simulator; 50 fps character-movement timeline                 |
+| **.lcsf**           | Lychee Conductor Show File — portable JSON show archive (v3.2+); same JSON as `.cybershow.json`    |
+| **.cybershow.json** | Legacy show format identifier (still accepted on import); superseded by `.lcsf` as of v3.2         |
 | **SCME**            | Showtape Creation and Management Engine — the Python module tree inside `SCME/`                    |
 | **SGM**             | Signal Generation Module — encodes choreography into BMC frames and a 4-ch WAV (Python)            |
 | **SVM**             | Show Validation Module — validates generated signals against hardware requirements                 |

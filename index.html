@@ -1017,6 +1017,177 @@
         flex-shrink: 0;
       }
 
+      /* ── BACKUP & RECOVERY MODAL ─────────────────────────────── */
+      #backup-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.72);
+        z-index: 3000;
+        align-items: center;
+        justify-content: center;
+      }
+      #backup-overlay.open {
+        display: flex;
+      }
+      #backup-modal {
+        background: linear-gradient(170deg, #0a0010 0%, #14001e 100%);
+        border: 1px solid #c060ff;
+        border-radius: 12px;
+        box-shadow: 0 0 60px rgba(192, 96, 255, 0.18);
+        width: 92%;
+        max-width: 900px;
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      #br-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 18px 24px 14px;
+        border-bottom: 1px solid rgba(192, 96, 255, 0.25);
+        flex-shrink: 0;
+      }
+      #br-header h2 {
+        font-size: 1.1em;
+        color: #c060ff;
+        margin: 0;
+      }
+      #br-close {
+        background: none;
+        border: none;
+        color: #88a;
+        font-size: 26px;
+        cursor: pointer;
+        line-height: 1;
+      }
+      #br-close:hover {
+        color: #fff;
+      }
+      #br-body {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+        min-height: 0;
+      }
+      .br-panel {
+        flex: 1;
+        padding: 20px 22px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: #2a0040 transparent;
+      }
+      .br-panel:first-child {
+        border-right: 1px solid rgba(192, 96, 255, 0.25);
+      }
+      .br-panel-title {
+        font-size: 0.85em;
+        font-weight: 700;
+        color: #be55ff;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+      }
+      .br-desc {
+        font-size: 0.79em;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+      .br-section {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .br-section-label {
+        font-size: 0.75em;
+        color: #888899;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+      }
+      .br-info {
+        font-size: 0.82em;
+        color: #d8bcf0;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid #2a0040;
+        border-radius: 5px;
+        padding: 7px 10px;
+      }
+      .br-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .br-status {
+        font-size: 0.79em;
+        color: var(--muted);
+        min-height: 1.2em;
+        word-break: break-all;
+      }
+      .br-sep {
+        border: none;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        margin: 2px 0;
+      }
+      .br-field {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+      .br-field label {
+        font-size: 0.76em;
+        color: #888899;
+        text-transform: uppercase;
+        letter-spacing: 0.7px;
+      }
+      .br-field input,
+      .br-field select {
+        background: #0a0010;
+        border: 1px solid #2a0040;
+        border-radius: 5px;
+        color: #d8bcf0;
+        padding: 6px 10px;
+        font-size: 0.88em;
+        outline: none;
+        transition: border-color 0.15s;
+      }
+      .br-field input:focus,
+      .br-field select:focus {
+        border-color: #be55ff88;
+      }
+      #br-recovery-log {
+        background: rgba(0, 0, 0, 0.4);
+        border: 1px solid #2a0040;
+        border-radius: 6px;
+        padding: 10px 12px;
+        font-family: "Courier New", monospace;
+        font-size: 0.75em;
+        color: #9090b8;
+        min-height: 90px;
+        max-height: 160px;
+        overflow-y: auto;
+        line-height: 1.6;
+        scrollbar-width: thin;
+        scrollbar-color: #2a0040 transparent;
+      }
+      #br-recovery-log::-webkit-scrollbar {
+        width: 5px;
+      }
+      #br-recovery-log::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      #br-recovery-log::-webkit-scrollbar-thumb {
+        background: #2a0040;
+        border-radius: 3px;
+      }
+
       /* ── INTRO OVERLAY ──────────────────────────────────────── */
       .intro-overlay {
         position: fixed;
@@ -1134,6 +1305,13 @@
         </div>
 
         <div class="tb-group">
+          <button
+            id="btn-backup"
+            class="tb-btn"
+            title="Backup & Recovery — export/import .lcsf show files, or recover a show from a 4ch WAV"
+          >
+            🗄️ Backup &amp; Recover
+          </button>
           <button
             id="btn-tester"
             class="tb-btn"
@@ -1365,6 +1543,144 @@
           <p id="ed-py-modal-msg" class="ed-py-msg"></p>
           <div class="ed-py-track">
             <div id="ed-py-modal-bar" class="ed-py-bar" style="width: 0%"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── BACKUP & RECOVERY MODAL ── -->
+      <div id="backup-overlay">
+        <div id="backup-modal">
+          <div id="br-header">
+            <h2>🗄️ Backup &amp; Recovery</h2>
+            <button id="br-close">&times;</button>
+          </div>
+          <div id="br-body">
+            <!-- ── Left panel: LCSF ── -->
+            <div class="br-panel">
+              <div class="br-panel-title">📦 Show File (.lcsf)</div>
+              <p class="br-desc">
+                The <strong style="color: #eebbff">.lcsf</strong>
+                (Lychee Conductor Show File) is a portable JSON archive of your
+                entire show — all characters, signal blocks, and state holds.
+                Use it to back up shows or transfer them between machines.
+              </p>
+
+              <!-- Export section -->
+              <div class="br-section">
+                <div class="br-section-label">Export current show</div>
+                <div id="br-export-info" class="br-info">No show loaded.</div>
+                <div class="br-row">
+                  <button
+                    id="br-export-btn"
+                    class="tb-btn tb-btn-green"
+                    disabled
+                  >
+                    ↓ Export .lcsf
+                  </button>
+                  <span id="br-export-status" class="br-status"></span>
+                </div>
+              </div>
+
+              <hr class="br-sep" />
+
+              <!-- Import section -->
+              <div class="br-section">
+                <div class="br-section-label">Import from .lcsf file</div>
+                <div class="br-row">
+                  <label for="br-lcsf-input" class="tb-btn"
+                    >📂 Choose .lcsf…</label
+                  >
+                  <input
+                    type="file"
+                    id="br-lcsf-input"
+                    accept=".lcsf,.json"
+                    style="display: none"
+                  />
+                  <span id="br-lcsf-name" class="br-status"
+                    >No file chosen</span
+                  >
+                </div>
+                <div class="br-row">
+                  <button id="br-import-btn" class="tb-btn" disabled>
+                    ↑ Import Show
+                  </button>
+                  <span id="br-import-status" class="br-status"></span>
+                </div>
+                <p class="br-desc" style="font-size: 0.73em; margin-top: 2px">
+                  Importing will replace the current show in the editor. Save
+                  first if you want to keep the current show.
+                </p>
+              </div>
+            </div>
+
+            <!-- ── Right panel: WAV recovery ── -->
+            <div class="br-panel">
+              <div class="br-panel-title">🔄 Recover from 4ch WAV</div>
+              <p class="br-desc">
+                Extract show choreography from a 4-channel WAV file. Channels 3
+                &amp; 4 carry the
+                <strong style="color: #eebbff"
+                  >TD &amp; BD BMC control signals</strong
+                >. This tool decodes them and rebuilds all character signal
+                blocks in the editor — recover your show even if the original
+                file was lost.
+              </p>
+
+              <div class="br-field">
+                <label>4-channel WAV file</label>
+                <div class="br-row">
+                  <label for="br-wav-input" class="tb-btn"
+                    >📂 Choose 4ch WAV…</label
+                  >
+                  <input
+                    type="file"
+                    id="br-wav-input"
+                    accept=".wav"
+                    style="display: none"
+                  />
+                  <span id="br-wav-name" class="br-status">No file chosen</span>
+                </div>
+              </div>
+
+              <div class="br-field">
+                <label for="br-show-title">Recovered show title</label>
+                <input
+                  id="br-show-title"
+                  type="text"
+                  placeholder="Recovered Show"
+                  maxlength="80"
+                />
+              </div>
+
+              <div class="br-field">
+                <label for="br-band-select">Band</label>
+                <select id="br-band-select">
+                  <option value="rock">🔥 Rock-Afire Explosion</option>
+                  <option value="munch">🎸 Munch's Make Believe Band</option>
+                </select>
+              </div>
+
+              <div class="br-row">
+                <button
+                  id="br-recover-btn"
+                  class="tb-btn"
+                  style="
+                    border-color: rgba(192, 96, 255, 0.5);
+                    color: #c060ff;
+                    background: rgba(192, 96, 255, 0.07);
+                  "
+                  disabled
+                >
+                  🔄 Recover Show
+                </button>
+              </div>
+
+              <div id="br-recovery-log" role="log" aria-live="polite">
+                <span style="color: #44445a"
+                  >Recovery output will appear here…</span
+                >
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -4725,6 +5041,674 @@ _rshw_result`,
             });
         });
       })(); // end SCME bridge IIFE
+    </script>
+
+    <script>
+      /* ============================================================
+         BACKUP & RECOVERY  (v3.2)
+         Left  panel: .lcsf export / import
+         Right panel: WAV recovery — BMC decode → signal cues
+         ============================================================ */
+      (function () {
+        /* ── Helpers shared with editor ────────────────────────── */
+        function _msToTS(ms) {
+          const m = Math.floor(ms / 60000);
+          const s = String(Math.floor((ms % 60000) / 1000)).padStart(2, "0");
+          const ms3 = String(Math.round(ms % 1000)).padStart(3, "0");
+          return `${m}:${s}.${ms3}`;
+        }
+
+        /* ── .lcsf EXPORT ──────────────────────────────────────── */
+        function exportLCSF() {
+          if (!showData) {
+            setStatus("No show loaded to export.", "#fa0");
+            return;
+          }
+          const statusEl = document.getElementById("br-export-status");
+          statusEl.style.color = "";
+          statusEl.textContent = "Preparing…";
+
+          // Build character map in the standard v3.0 format
+          const charMap = {};
+          for (const [charName, cd] of Object.entries(showData.characters)) {
+            const signals = (cd.signals || []).map((sig) => ({
+              frame: sig.frame,
+              timestamp: _msToTS(sig.frame * (1000 / 50)),
+              movement: sig.movement,
+              bit: sig.bit ?? 0,
+              state: sig.state,
+              note: sig.note || "",
+            }));
+            charMap[charName] = {
+              track: cd.track || "TD",
+              signals,
+              state_blocks: (cd.state_blocks || []).map((sb) => ({ ...sb })),
+            };
+          }
+
+          const exportObj = {
+            cyberstar_show: true,
+            lcsf_version: "3.2",
+            version: "3.0",
+            title: showData.title,
+            band: showData.band,
+            duration_ms: showData.duration_ms || totalFrames * 20,
+            duration_frames: totalFrames,
+            fps: 50,
+            bpm: showData.bpm || null,
+            description: showData.description || "",
+            savedAt: new Date().toISOString(),
+            characters: charMap,
+          };
+
+          const json = JSON.stringify(exportObj, null, 2);
+          const blob = new Blob([json], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download =
+            (showData.title || "show").replace(/[^a-z0-9_\-]/gi, "_") + ".lcsf";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 15000);
+
+          statusEl.style.color = "#00d464";
+          statusEl.textContent = "✓ " + a.download + " saved";
+        }
+
+        /* ── .lcsf IMPORT ──────────────────────────────────────── */
+        function importLCSF(file) {
+          const statusEl = document.getElementById("br-import-status");
+          const btn = document.getElementById("br-import-btn");
+          btn.disabled = true;
+          statusEl.style.color = "";
+          statusEl.textContent = "Reading file…";
+
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            try {
+              const obj = JSON.parse(e.target.result);
+
+              if (!obj.cyberstar_show)
+                throw new Error(
+                  "Not a valid .lcsf file (missing cyberstar_show key).",
+                );
+              if (!obj.band || !["rock", "munch"].includes(obj.band))
+                throw new Error(
+                  'Missing or invalid "band" — must be "rock" or "munch".',
+                );
+
+              const FPS = obj.fps || 50;
+              const MS_PER_FRAME = 1000 / FPS;
+              const sequences = [];
+              let skipped = 0;
+
+              // Accept v3.0 character-centric format
+              if (obj.characters && typeof obj.characters === "object") {
+                for (const [charName, charData] of Object.entries(
+                  obj.characters,
+                )) {
+                  const charEntry = CHARACTER_MOVEMENTS[charName];
+                  if (!charEntry) {
+                    skipped += (charData.signals || []).length;
+                    continue;
+                  }
+                  for (const sig of charData.signals || []) {
+                    if (
+                      typeof sig.frame !== "number" ||
+                      !sig.movement ||
+                      typeof sig.state !== "boolean"
+                    ) {
+                      skipped++;
+                      continue;
+                    }
+                    if (!charEntry.movements[sig.movement]) {
+                      skipped++;
+                      continue;
+                    }
+                    sequences.push({
+                      time: Math.max(0, Math.round(sig.frame * MS_PER_FRAME)),
+                      character: charName,
+                      movement: sig.movement,
+                      state: sig.state,
+                      note: sig.note || "",
+                    });
+                  }
+                }
+              } else {
+                throw new Error(
+                  'No "characters" data found. This may be an incomplete file.',
+                );
+              }
+
+              if (sequences.length === 0)
+                throw new Error(
+                  "No valid signal cues found in the file" +
+                    (skipped
+                      ? ` (${skipped} skipped — unknown chars/movements)`
+                      : "") +
+                    ".",
+                );
+
+              sequences.sort((a, b) => a.time - b.time);
+              const lastCue = sequences[sequences.length - 1].time;
+              const duration =
+                obj.duration_ms && obj.duration_ms > lastCue
+                  ? obj.duration_ms
+                  : lastCue + 2000;
+              const frames = Math.round(duration / MS_PER_FRAME);
+              const band = obj.band;
+
+              // Rebuild showData
+              const newShow = {
+                cyberstar_show: true,
+                version: "3.0",
+                fps: FPS,
+                title: obj.title || file.name.replace(/\.lcsf$/i, ""),
+                band,
+                duration_frames: frames,
+                duration_ms: duration,
+                characters: {},
+              };
+
+              for (const seq of sequences) {
+                if (!newShow.characters[seq.character]) {
+                  const cEntry = CHARACTER_MOVEMENTS[seq.character];
+                  const track = cEntry
+                    ? Object.values(cEntry.movements)[0].track
+                    : "TD";
+                  newShow.characters[seq.character] = { track, signals: [] };
+                }
+                const bit =
+                  CHARACTER_MOVEMENTS[seq.character]?.movements?.[seq.movement]
+                    ?.bit ?? 0;
+                newShow.characters[seq.character].signals.push({
+                  frame: Math.round(seq.time / MS_PER_FRAME),
+                  timestamp: _msToTS(seq.time),
+                  movement: seq.movement,
+                  bit,
+                  state: seq.state,
+                  note: seq.note || "",
+                });
+              }
+
+              // Restore state_blocks
+              for (const [charName, charData] of Object.entries(
+                obj.characters,
+              )) {
+                if (
+                  newShow.characters[charName] &&
+                  charData.state_blocks?.length
+                ) {
+                  newShow.characters[charName].state_blocks =
+                    charData.state_blocks.map((sb) => ({ ...sb }));
+                }
+              }
+
+              // Activate in editor
+              showData = newShow;
+              totalFrames = frames;
+              buildRowMeta(band);
+              buildEditor();
+
+              document.getElementById("show-title").textContent = newShow.title;
+              const badge = document.getElementById("band-badge");
+              badge.textContent = band === "rock" ? "RFE" : "MMBB";
+              badge.className = "band-badge band-rock";
+              badge.style.display = "";
+              document.getElementById("btn-save").disabled = false;
+              document.getElementById("btn-export-4ch").disabled = false;
+
+              closeBackupModal();
+              const msg =
+                `Imported "${newShow.title}" from .lcsf — ` +
+                `${sequences.length} cues` +
+                (skipped ? `, ${skipped} skipped` : "") +
+                ".";
+              setStatus(msg);
+              statusEl.style.color = "#00d464";
+              statusEl.textContent =
+                "✓ " + sequences.length + " cues from " + file.name;
+            } catch (err) {
+              statusEl.style.color = "#f44";
+              statusEl.textContent = "✗ " + err.message;
+            } finally {
+              btn.disabled = false;
+            }
+          };
+          reader.readAsText(file);
+        }
+
+        /* ── WAV RECOVERY: BMC DECODER ─────────────────────────── */
+        /**
+         * Decode a Float32Array BMC channel into an array of
+         * { bit: 0|1, samplePos: number } objects.
+         *
+         * Parameters match the Python BMCDecoder:
+         *   baud_rate  = 4800
+         *   tolerance  = ±30 %
+         *   amp_thresh = 0.01 (≈ 200/32767 of full-scale)
+         */
+        function bmcDecodeChannel(float32, sampleRate) {
+          const BAUD = 4800;
+          const nomFull = sampleRate / BAUD; // ≈9.1875 at 44100 Hz
+          const nomHalf = nomFull / 2; // ≈4.594
+          const TOL = 0.3;
+          const fullLo = Math.floor(nomFull * (1 - TOL));
+          const fullHi = Math.ceil(nomFull * (1 + TOL));
+          const halfLo = Math.floor(nomHalf * (1 - TOL));
+          const halfHi = Math.ceil(nomHalf * (1 + TOL));
+          const AMP = 0.01; // amplitude threshold
+
+          const isFull = (r) => r >= fullLo && r <= fullHi;
+          const isHalf = (r) => r >= halfLo && r <= halfHi;
+
+          // ── Run-length detection ────────────────────────────────
+          const runs = []; // { pos, len }
+          let i = 0;
+          const n = float32.length;
+          while (i < n) {
+            if (Math.abs(float32[i]) < AMP) {
+              i++;
+              continue;
+            }
+            const pos = i;
+            const pos_sign = float32[i] > 0;
+            while (
+              i < n &&
+              float32[i] > 0 === pos_sign &&
+              Math.abs(float32[i]) >= AMP
+            )
+              i++;
+            runs.push({ pos, len: i - pos });
+          }
+
+          // ── Bit classification ──────────────────────────────────
+          const bits = [];
+          let ri = 0;
+          while (ri < runs.length) {
+            const { pos, len } = runs[ri];
+            if (isFull(len)) {
+              // Bit '0': single full run
+              bits.push({ bit: 0, samplePos: pos });
+              ri++;
+            } else if (isHalf(len)) {
+              // Potential bit '1': need a second half run
+              if (ri + 1 < runs.length) {
+                const r2 = runs[ri + 1].len;
+                if (isHalf(r2)) {
+                  bits.push({ bit: 1, samplePos: pos });
+                  ri += 2;
+                } else if (isFull(len + r2)) {
+                  // Combined sum is within full tolerance → treat as '1'
+                  bits.push({ bit: 1, samplePos: pos });
+                  ri += 2;
+                } else {
+                  ri++; // malformed, skip
+                }
+              } else {
+                ri++; // trailing half, skip
+              }
+            } else {
+              ri++; // out of tolerance, skip
+            }
+          }
+          return bits;
+        }
+
+        /* ── WAV RECOVERY: FRAME → TRANSITION EXTRACTOR ────────── */
+        /**
+         * Group a decoded bit stream into fixed-width frames, then
+         * detect per-bit rising/falling edges across those frames.
+         *
+         * Returns: [{ bitPos, showFrame, state: bool }]
+         * where showFrame is the 50-fps show-editor frame number.
+         */
+        function extractTransitions(bits, frameBits, sampleRate) {
+          const MS_PER_FRAME = 20; // 50 fps
+          if (bits.length < frameBits) return [];
+
+          const numFrames = Math.floor(bits.length / frameBits);
+          const transitions = [];
+          const prevState = new Uint8Array(frameBits);
+
+          for (let fi = 0; fi < numFrames; fi++) {
+            const base = fi * frameBits;
+            const samplePos = bits[base]?.samplePos ?? 0;
+            const showFrame = Math.round(
+              ((samplePos / sampleRate) * 1000) / MS_PER_FRAME,
+            );
+
+            for (let b = 0; b < frameBits; b++) {
+              const cur = bits[base + b]?.bit ?? 0;
+              if (cur !== prevState[b]) {
+                transitions.push({ bitPos: b, showFrame, state: cur === 1 });
+                prevState[b] = cur;
+              }
+            }
+          }
+          return transitions;
+        }
+
+        /* ── WAV RECOVERY: REVERSE BIT MAPS ────────────────────── */
+        /**
+         * Build TD and BD bit→{charName,movKey} lookup tables
+         * filtered to the characters that belong to the chosen band.
+         */
+        function buildBitMaps(band) {
+          const BAND_CHARS = {
+            rock: [
+              "Rolfe",
+              "Earl",
+              "Dook LaRue",
+              "Fatz",
+              "Beach Bear",
+              "Looney Bird",
+              "Mitzi",
+              "Billy Bob",
+              "Lights",
+            ],
+            munch: [
+              "Chuck E. Cheese",
+              "Munch",
+              "Helen Henny",
+              "Jasper T. Jowls",
+              "Pasqually",
+            ],
+          };
+          const chars = BAND_CHARS[band] || [];
+          const tdMap = {};
+          const bdMap = {};
+          for (const charName of chars) {
+            const cEntry = CHARACTER_MOVEMENTS[charName];
+            if (!cEntry) continue;
+            for (const [movKey, mData] of Object.entries(cEntry.movements)) {
+              const map = mData.track === "TD" ? tdMap : bdMap;
+              if (!map[mData.bit]) map[mData.bit] = { charName, movKey };
+            }
+          }
+          return { tdMap, bdMap };
+        }
+
+        /* ── MAIN RECOVERY FUNCTION ────────────────────────────── */
+        async function recoverFromWAV() {
+          const fileInput = document.getElementById("br-wav-input");
+          const file = fileInput.files[0];
+          if (!file) return;
+
+          const log = document.getElementById("br-recovery-log");
+          const btn = document.getElementById("br-recover-btn");
+          const band = document.getElementById("br-band-select").value;
+          const showTitle =
+            document.getElementById("br-show-title").value.trim() ||
+            file.name.replace(/\.wav$/i, "");
+
+          btn.disabled = true;
+          log.innerHTML = "";
+
+          const addLog = (msg, color) => {
+            const line = document.createElement("div");
+            if (color) line.style.color = color;
+            line.textContent = msg;
+            log.appendChild(line);
+            log.scrollTop = log.scrollHeight;
+          };
+
+          addLog("Decoding WAV file…");
+
+          try {
+            // 1 — Decode WAV
+            const arrayBuf = await file.arrayBuffer();
+            const tmpCtx = new AudioContext();
+            const audioBuf = await tmpCtx.decodeAudioData(arrayBuf);
+            await tmpCtx.close();
+
+            const sr = audioBuf.sampleRate;
+            const numCh = audioBuf.numberOfChannels;
+            addLog(
+              `WAV: ${numCh}ch @ ${sr} Hz  ·  ${audioBuf.duration.toFixed(2)} s`,
+            );
+
+            if (numCh < 4) {
+              throw new Error(
+                `Need a 4-channel WAV (Music L, Music R, TD BMC, BD BMC). Got ${numCh} ch.`,
+              );
+            }
+
+            // 2 — Extract control channels (index 2 = TD, index 3 = BD)
+            const tdFloat = audioBuf.getChannelData(2);
+            const bdFloat = audioBuf.getChannelData(3);
+
+            // 3 — BMC decode
+            addLog("Decoding TD (Treble Data) BMC…");
+            const tdBits = bmcDecodeChannel(tdFloat, sr);
+            addLog(`  → ${tdBits.length.toLocaleString()} bits decoded`);
+
+            addLog("Decoding BD (Bass Data) BMC…");
+            const bdBits = bmcDecodeChannel(bdFloat, sr);
+            addLog(`  → ${bdBits.length.toLocaleString()} bits decoded`);
+
+            if (tdBits.length === 0 && bdBits.length === 0) {
+              throw new Error(
+                "No BMC signal detected on channels 3 / 4. " +
+                  "Ensure the file was exported by Lychee Conductor (4-channel WAV).",
+              );
+            }
+
+            // 4 — Build bit maps for the chosen band
+            const { tdMap, bdMap } = buildBitMaps(band);
+            const bandLabel =
+              band === "rock"
+                ? "Rock-Afire Explosion"
+                : "Munch's Make Believe Band";
+            addLog(`Band target: ${bandLabel}`);
+
+            // 5 — Extract transitions (frame-by-frame edge detection)
+            const TD_FRAME_BITS = 94;
+            const BD_FRAME_BITS = 96;
+            addLog("Extracting signal transitions from BMC frames…");
+            const tdTr = extractTransitions(tdBits, TD_FRAME_BITS, sr);
+            const bdTr = extractTransitions(bdBits, BD_FRAME_BITS, sr);
+            addLog(`  → TD: ${tdTr.length} transitions`);
+            addLog(`  → BD: ${bdTr.length} transitions`);
+
+            // 6 — Build show data
+            const FPS = 50;
+            const MS_PER_FRAME = 1000 / FPS;
+            const durationFrames = Math.ceil(audioBuf.duration * FPS);
+
+            const newShow = {
+              cyberstar_show: true,
+              version: "3.0",
+              fps: FPS,
+              title: showTitle,
+              band,
+              duration_frames: durationFrames,
+              duration_ms: durationFrames * MS_PER_FRAME,
+              characters: {},
+            };
+
+            let cueCount = 0;
+            let unknownCount = 0;
+
+            const ingest = (transitions, bitMap) => {
+              for (const tr of transitions) {
+                const mapping = bitMap[tr.bitPos];
+                if (!mapping) {
+                  unknownCount++;
+                  continue;
+                }
+                const { charName, movKey } = mapping;
+                if (!newShow.characters[charName]) {
+                  const cEntry = CHARACTER_MOVEMENTS[charName];
+                  const track = cEntry
+                    ? Object.values(cEntry.movements)[0].track
+                    : "TD";
+                  newShow.characters[charName] = { track, signals: [] };
+                }
+                newShow.characters[charName].signals.push({
+                  frame: tr.showFrame,
+                  timestamp: _msToTS(tr.showFrame * MS_PER_FRAME),
+                  movement: movKey,
+                  bit: tr.bitPos,
+                  state: tr.state,
+                  note: "recovered",
+                });
+                cueCount++;
+              }
+            };
+
+            ingest(tdTr, tdMap);
+            ingest(bdTr, bdMap);
+
+            // Sort signals per character
+            for (const cd of Object.values(newShow.characters)) {
+              cd.signals.sort(
+                (a, b) => a.frame - b.frame || (a.state ? 1 : -1),
+              );
+            }
+
+            addLog(
+              `Built ${cueCount} cues across ` +
+                `${Object.keys(newShow.characters).length} characters.`,
+            );
+            if (unknownCount > 0)
+              addLog(
+                `  (${unknownCount} transitions on reserved/unmapped bits — ignored)`,
+                "#ffb400",
+              );
+
+            if (cueCount === 0) {
+              throw new Error(
+                "No character movements recovered. " +
+                  "Check that the band selection matches the WAV content " +
+                  "and that channels 3 & 4 carry control signals.",
+              );
+            }
+
+            // 7 — Load into editor
+            showData = newShow;
+            totalFrames = durationFrames;
+            buildRowMeta(band);
+            buildEditor();
+
+            document.getElementById("show-title").textContent = showTitle;
+            const badge = document.getElementById("band-badge");
+            badge.textContent = band === "rock" ? "RFE" : "MMBB";
+            badge.className = "band-badge band-rock";
+            badge.style.display = "";
+            document.getElementById("btn-save").disabled = false;
+            document.getElementById("btn-export-4ch").disabled = false;
+
+            addLog(`✓ Done — "${showTitle}" loaded in editor.`, "#00d464");
+            addLog(
+              `  ${cueCount} signal cues · ${durationFrames} frames (${audioBuf.duration.toFixed(1)} s)`,
+              "#00d464",
+            );
+            setStatus(
+              `♻ Recovered "${showTitle}" from 4ch WAV — ${cueCount} cues rebuilt.`,
+            );
+          } catch (err) {
+            addLog("✗ Error: " + err.message, "#f44");
+            console.error("WAV Recovery:", err);
+          } finally {
+            btn.disabled = false;
+          }
+        }
+
+        /* ── MODAL OPEN / CLOSE ────────────────────────────────── */
+        function openBackupModal() {
+          const overlay = document.getElementById("backup-overlay");
+          overlay.classList.add("open");
+          // Refresh export info panel
+          const info = document.getElementById("br-export-info");
+          const btn = document.getElementById("br-export-btn");
+          if (showData) {
+            const charCount = Object.keys(showData.characters).length;
+            const cueCount = Object.values(showData.characters).reduce(
+              (n, c) => n + (c.signals || []).length,
+              0,
+            );
+            info.textContent = `"${showData.title}" · ${charCount} characters · ${cueCount} signal cues`;
+            btn.disabled = false;
+          } else {
+            info.textContent = "No show currently loaded.";
+            btn.disabled = true;
+          }
+          document.getElementById("br-export-status").textContent = "";
+        }
+
+        function closeBackupModal() {
+          document.getElementById("backup-overlay").classList.remove("open");
+        }
+
+        // Expose so the SCME bridge can call closeBackupModal after import
+        window._brClose = closeBackupModal;
+
+        /* ── EVENT WIRING ──────────────────────────────────────── */
+        document.addEventListener("DOMContentLoaded", () => {
+          document
+            .getElementById("btn-backup")
+            .addEventListener("click", openBackupModal);
+
+          document
+            .getElementById("br-close")
+            .addEventListener("click", closeBackupModal);
+
+          document
+            .getElementById("backup-overlay")
+            .addEventListener("click", (e) => {
+              if (e.target === document.getElementById("backup-overlay"))
+                closeBackupModal();
+            });
+
+          document.addEventListener("keydown", (e) => {
+            if (
+              e.key === "Escape" &&
+              document
+                .getElementById("backup-overlay")
+                .classList.contains("open")
+            ) {
+              closeBackupModal();
+            }
+          });
+
+          // Left panel: export
+          document
+            .getElementById("br-export-btn")
+            .addEventListener("click", exportLCSF);
+
+          // Left panel: import file picker + button
+          const lcsfInput = document.getElementById("br-lcsf-input");
+          const lcsfBtn = document.getElementById("br-import-btn");
+          lcsfInput.addEventListener("change", () => {
+            const f = lcsfInput.files[0];
+            document.getElementById("br-lcsf-name").textContent = f
+              ? f.name
+              : "No file chosen";
+            lcsfBtn.disabled = !f;
+            document.getElementById("br-import-status").textContent = "";
+          });
+          lcsfBtn.addEventListener("click", () => {
+            const f = lcsfInput.files[0];
+            if (f) importLCSF(f);
+          });
+
+          // Right panel: WAV file picker + recover button
+          const wavInput = document.getElementById("br-wav-input");
+          wavInput.addEventListener("change", () => {
+            const f = wavInput.files[0];
+            document.getElementById("br-wav-name").textContent = f
+              ? f.name
+              : "No file chosen";
+            document.getElementById("br-recover-btn").disabled = !f;
+          });
+          document
+            .getElementById("br-recover-btn")
+            .addEventListener("click", recoverFromWAV);
+        });
+      })(); // end Backup & Recovery IIFE
     </script>
 
     <script>
