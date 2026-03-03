@@ -75,6 +75,17 @@
         min-width: 0;
         padding: 0 8px;
       }
+      .tb-logo {
+        height: 30px;
+        width: auto;
+        flex-shrink: 0;
+        opacity: 0.85;
+        filter: drop-shadow(0 0 6px rgba(192, 96, 255, 0.5));
+        transition: opacity 0.2s ease;
+      }
+      .tb-logo:hover {
+        opacity: 1;
+      }
       #show-title {
         font-size: 0.95em;
         font-weight: 600;
@@ -1052,7 +1063,7 @@
       <img
         id="intro-logo"
         class="intro-logo"
-        src="ChatGPT Image Oct 20, 2025, 01_14_23 PM.png"
+        src="ChatGPT_Image_Oct_20__2025__01_14_23_PM-removebg-preview.png"
         alt="Lychee Interactive"
         draggable="false"
       />
@@ -1079,6 +1090,12 @@
         </div>
 
         <div class="tb-title">
+          <img
+            class="tb-logo"
+            src="ChatGPT_Image_Oct_20__2025__01_14_23_PM-removebg-preview.png"
+            alt="Lychee Interactive"
+            draggable="false"
+          />
           <span id="show-title">No show loaded</span>
           <span id="band-badge" class="band-badge" style="display: none"></span>
         </div>
