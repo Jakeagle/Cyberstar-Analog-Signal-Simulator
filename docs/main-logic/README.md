@@ -1,6 +1,6 @@
 # Main Logic — Module Overview
 
-This folder documents the JavaScript modules in the Cyberstar Simulator. In v3, the application is a **single-file** architecture: `index.html` inlines all editor, tester, and export logic as an SCME bridge IIFE. Only one external JS file is loaded.
+This folder documents the JavaScript modules in the Lychee Conductor. In v3, the application is a **single-file** architecture: `index.html` inlines all editor, tester, and export logic as an SCME bridge IIFE. Only one external JS file is loaded.
 
 ---
 

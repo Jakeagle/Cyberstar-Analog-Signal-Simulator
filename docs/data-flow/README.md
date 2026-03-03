@@ -1,6 +1,6 @@
 # Data Flow — End-to-End Overview
 
-This document traces how data moves through the Cyberstar Simulator from show creation to a validated `.rshw` export.
+This document traces how data moves through the Lychee Conductor from show creation to a validated `.rshw` export.
 
 ---
 

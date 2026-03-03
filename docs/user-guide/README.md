@@ -1,6 +1,6 @@
 # User Guide
 
-This guide covers practical usage of the Cyberstar Simulator — how to create a show, edit it, export it, and get it into SPTE.
+This guide covers practical usage of the Lychee Conductor — how to create a show, edit it, export it, and get it into SPTE.
 
 ---
 

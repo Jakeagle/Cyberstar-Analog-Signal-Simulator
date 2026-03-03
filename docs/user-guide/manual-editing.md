@@ -1,6 +1,6 @@
 # Manual Editing
 
-This guide covers advanced editing operations in the Cyberstar Simulator piano roll editor.
+This guide covers advanced editing operations in the Lychee Conductor piano roll editor.
 
 ---
 

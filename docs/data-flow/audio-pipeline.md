@@ -5,7 +5,7 @@
 > SAM is **no longer invoked from the browser UI in v3**. The v2 pipeline is preserved
 > at the bottom of this page for historical reference.
 
-This page explains how audio files are handled in the Cyberstar Simulator v3.
+This page explains how audio files are handled in the Lychee Conductor v3.
 
 ---
 

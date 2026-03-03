@@ -1,6 +1,6 @@
 # .cybershow.json — Internal Show Format Specification (v3.0)
 
-The `.cybershow.json` file is the **internal lingua franca** of the Cyberstar Simulator. It is the format that:
+The `.cybershow.json` file is the **internal lingua franca** of the Lychee Conductor. It is the format that:
 
 - SAM (Python) produces after audio analysis (standalone use; SAM is not called from the browser UI in v3)
 - The piano roll editor reads and writes (primary use in v3)

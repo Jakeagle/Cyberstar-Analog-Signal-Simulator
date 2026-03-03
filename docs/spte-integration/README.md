@@ -2,7 +2,7 @@
 
 SPTE (Showbiz Pizza Time Experience) is a Unity 3D game for show creation and playback. It is a mod of **RR-Engine** — an open-source Unity 3D show creation and playback game. SPTE connects to physical Cyberstar animatronic hardware and sends pulses to the pneumatic valve solenoids that animate the figures.
 
-This folder covers everything about the interface between the Cyberstar Simulator and SPTE.
+This folder covers everything about the interface between the Lychee Conductor and SPTE.
 
 ---
 
@@ -11,7 +11,7 @@ This folder covers everything about the interface between the Cyberstar Simulato
 The simulator does not talk directly to SPTE at runtime. There is no network protocol, serial port, or live feed. Instead, SPTE integration happens **at export time** — the simulator produces files that SPTE can load and play.
 
 ```
-Cyberstar Simulator (browser)
+Lychee Conductor (browser)
        │
        │  produces:
        ▼

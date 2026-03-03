@@ -1,6 +1,6 @@
 # Creating a Show
 
-This guide walks through creating a new show from scratch in the Cyberstar Simulator.
+This guide walks through creating a new show from scratch in the Lychee Conductor.
 
 ---
 

@@ -1,6 +1,6 @@
 # Export Pipeline
 
-This document describes how the Cyberstar Simulator produces `.rshw` files from a show authored in the piano roll editor.
+This document describes how the Lychee Conductor produces `.rshw` files from a show authored in the piano roll editor.
 
 ---
 

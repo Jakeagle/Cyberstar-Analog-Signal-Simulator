@@ -1,6 +1,8 @@
-# Cyberstar Simulator — Documentation
+# Lychee Conductor — Documentation
 
-Welcome to the project documentation. This folder covers everything about how the Cyberstar Simulator works, from the browser UI down to the BitArray that gets written into an `.rshw` file.
+> **v3.1 — Rebrand:** This project was formerly known as **Cyberstar Simulator**. As of v3.1 it has been rebranded to **Lychee Conductor** by [Lychee Interactive](https://github.com/Jakeagle/Cyberstar-Analog-Signal-Simulator). All user-facing names have been updated; internal format identifiers (e.g. `.cybershow.json`, `cyberstar_show` keys) remain unchanged for compatibility. References to _Cyberstar hardware_, _Cyberstar Online (CSO format)_, and `CyberstarSignalGenerator` throughout these docs refer to the **animatronic hardware ecosystem**, not the app.
+
+Welcome to the project documentation. This folder covers everything about how the Lychee Conductor works, from the browser UI down to the BitArray that gets written into an `.rshw` file.
 
 Use the sections below to find what you're looking for.
 
@@ -8,7 +10,7 @@ Use the sections below to find what you're looking for.
 
 ## What is this project?
 
-The Cyberstar Simulator is a browser-based tool for creating, previewing, and exporting animatronic show content (showtapes) for the **Rock-Afire Explosion (RAE)** animatronic system. It bridges two worlds:
+The Lychee Conductor is a browser-based tool for creating, previewing, and exporting animatronic show content (showtapes) for the **Rock-Afire Explosion (RAE)** animatronic system. It bridges two worlds:
 
 - **The browser** — where a user draws choreography in a piano roll editor, previews animated characters in the 4ch Tester, and exports a validated showtape.
 - **RR-Engine / SPTE** — the Unity 3D game where showtapes are loaded and played back through the animatronic hardware. SPTE (Showbiz Pizza Time Experience) is a mod of RR-Engine, which is the open-source base game.
@@ -66,20 +68,20 @@ The core challenge is translating a choreography timeline (character movements a
 
 ## Key Terminology
 
-| Term                | Meaning                                                                                             |
-| ------------------- | --------------------------------------------------------------------------------------------------- |
-| **SPTE**            | Showbiz Pizza Time Experience — a Unity 3D game for show creation and playback; a mod of RR-Engine  |
-| **RR-Engine**       | An open-source Unity 3D show creation and playback game; SPTE is a mod built on top of it           |
-| **BMC**             | Biphase Mark Code — the self-clocking binary encoding used on the control audio tracks              |
-| **TD**              | Treble Data — the high-frequency control signal track (94 channels, e.g. Rolfe, Fatz, Dook)         |
-| **BD**              | Bass Data — the second control signal track (96 channels, e.g. Beach Bear, Mitzi, Billy Bob)        |
-| **Frame**           | One 96-bit BMC packet sent at 45.9375 fps; contains the on/off state of every actuator              |
-| **.rshw**           | RR-Engine's legacy NRBF binary showtape format                                                      |
-| **.cybershow.json** | Internal show format used inside the simulator; 50 fps character-movement timeline                  |
+| Term                | Meaning                                                                                            |
+| ------------------- | -------------------------------------------------------------------------------------------------- |
+| **SPTE**            | Showbiz Pizza Time Experience — a Unity 3D game for show creation and playback; a mod of RR-Engine |
+| **RR-Engine**       | An open-source Unity 3D show creation and playback game; SPTE is a mod built on top of it          |
+| **BMC**             | Biphase Mark Code — the self-clocking binary encoding used on the control audio tracks             |
+| **TD**              | Treble Data — the high-frequency control signal track (94 channels, e.g. Rolfe, Fatz, Dook)        |
+| **BD**              | Bass Data — the second control signal track (96 channels, e.g. Beach Bear, Mitzi, Billy Bob)       |
+| **Frame**           | One 96-bit BMC packet sent at 45.9375 fps; contains the on/off state of every actuator             |
+| **.rshw**           | RR-Engine's legacy NRBF binary showtape format                                                     |
+| **.cybershow.json** | Internal show format used inside the simulator; 50 fps character-movement timeline                 |
 | **SCME**            | Showtape Creation and Management Engine — the Python module tree inside `SCME/`                    |
-| **SGM**             | Signal Generation Module — encodes choreography into BMC frames and a 4-ch WAV (Python)             |
-| **SVM**             | Show Validation Module — validates generated signals against hardware requirements                  |
-| **SViz**            | Signal Visualizer — decodes a 4-channel WAV and validates the BMC signal; runs in the tester modal  |
-| **SAM**             | Show Analysis Module — analyses audio and generates choreography (Python, legacy/standalone only)    |
-| **KWS**             | Known-Working Show — a reference WAV recorded from real hardware, used for calibration              |
-| **RAE**             | Rock-Afire Explosion — the ShowBiz Pizza animatronic band (Rock-Afire is the only band in v3)       |
+| **SGM**             | Signal Generation Module — encodes choreography into BMC frames and a 4-ch WAV (Python)            |
+| **SVM**             | Show Validation Module — validates generated signals against hardware requirements                 |
+| **SViz**            | Signal Visualizer — decodes a 4-channel WAV and validates the BMC signal; runs in the tester modal |
+| **SAM**             | Show Analysis Module — analyses audio and generates choreography (Python, legacy/standalone only)  |
+| **KWS**             | Known-Working Show — a reference WAV recorded from real hardware, used for calibration             |
+| **RAE**             | Rock-Afire Explosion — the ShowBiz Pizza animatronic band (Rock-Afire is the only band in v3)      |
