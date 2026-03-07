@@ -1,5 +1,7 @@
 # Lychee Conductor — Documentation
 
+> **v3.2.1 — Complete RAE Bit Chart:** v3.2.1 adds full support for all Rock-Afire Explosion characters, movements, and lighting controls as documented in the complete RAE_Bit_Chart.md. This includes organ lights, sign lights, curtains, flood lights, and all scenic controls. The unified "Lights" group enables AI-assisted light choreography via SAM (Show Analysis Module).
+
 > **v3.2 — Backup & Recovery + .lcsf format:** v3.2 adds the Backup & Recovery modal (toolbar button 🗄️). `.lcsf` (Lychee Conductor Show File) is now the standard show file format — same JSON structure as `.cybershow.json`, new extension. The right panel of the modal includes a 4ch WAV recovery tool that decodes BMC signals and rebuilds show choreography in the editor.
 
 > **v3.1 — Rebrand:** This project was formerly known as **Cyberstar Simulator**. As of v3.1 it has been rebranded to **Lychee Conductor** by [Lychee Interactive](https://github.com/Jakeagle/Cyberstar-Analog-Signal-Simulator). All user-facing names have been updated; internal format identifiers (e.g. `.cybershow.json`, `cyberstar_show` keys) remain unchanged for compatibility. References to _Cyberstar hardware_, _Cyberstar Online (CSO format)_, and `CyberstarSignalGenerator` throughout these docs refer to the **animatronic hardware ecosystem**, not the app.

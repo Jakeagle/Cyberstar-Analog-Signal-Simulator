@@ -115,13 +115,26 @@
   const _RAE_CHARS = new Set([
     "Rolfe",
     "Earl",
-    "Dook LaRue",
-    "Fatz",
+    "Duke LaRue",
+    "Fats",
     "Beach Bear",
     "Looney Bird",
     "Mitzi",
     "Billy Bob",
+    "Props",
     "Lights",
+    "Organ Lights",
+    "Sign Lights",
+    "Stage Spotlights",
+    "Curtains",
+    "Tape Control",
+    "Flood Lights - Stage Right",
+    "Flood Lights - Center Stage",
+    "Flood Lights - Stage Left",
+    "Backdrop & Scenic Lights",
+    "Property Lights",
+    "Service Lights",
+    "Stage Spotlights BD",
   ]);
 
   function buildStageMap(py) {

@@ -886,7 +886,7 @@ function exportShowJSON(id) {
 
   const exportObj = {
     cyberstar_show: true,
-    version: "3.0",
+    version: "3.2.1",
     title: tape.title,
     band: tape.band, // "rock" | "munch"
     duration_ms: tape.duration,

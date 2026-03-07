@@ -160,7 +160,7 @@ _CHAR_MOV_BITS = {
     "Earl": ("TD", {
         "head_tilt": 19, "mouth": 35, "eyebrow": 36,
     }),
-    "Dook LaRue": ("TD", {
+    "Duke LaRue": ("TD", {
         "head_right": 20, "head_up": 21, "ear_left": 22, "ear_right": 23,
         "head_left": 24, "eyelid_left": 25, "eyelid_right": 26,
         "eye_left": 27, "eye_right": 28, "mouth": 29,
@@ -168,7 +168,7 @@ _CHAR_MOV_BITS = {
         "arm_left_swing": 32, "arm_right_swing": 33, "elbow_left": 34,
         "bass_drum": 62, "body_lean": 63,
     }),
-    "Fatz": ("TD", {
+    "Fats": ("TD", {
         "eyelid_left": 40, "eyelid_right": 41, "eye_left": 42, "eye_right": 43,
         "mouth": 44,
         "head_tip_left": 50, "head_tip_right": 51, "head_up": 52,
@@ -177,13 +177,71 @@ _CHAR_MOV_BITS = {
         "elbow_left": 58, "elbow_right": 59,
         "foot_tap": 60, "body_lean": 61,
     }),
-    "Lights": ("TD", {
+    "Props": ("TD", {
         "sun_mouth": 37, "sun_raise": 38,
         "moon_mouth": 45, "moon_raise": 46,
         "looney_bird_hands": 47, "antioch_down": 48, "baby_bear_raise": 49,
+    }),
+    "Organ Lights": ("TD", {
+        "top_blue": 65, "top_red": 66, "top_amber": 67, "top_green": 68,
+        "leg_top": 70, "leg_mid": 71, "leg_bottom": 72,
+        "cont_strobe": 73, "flash_strobe": 74,
+    }),
+    "Sign Lights": ("TD", {
+        "inner": 75, "mid": 76, "outer": 77,
+        "cont_strobe": 78, "flash_strobe": 79,
+    }),
+    "Stage Spotlights": ("TD", {
+        "mitzi": 80, "beach_bear": 81, "looney_bird": 82,
+        "billy_bob": 83, "fats": 84, "duke": 85,
+        "rolfe": 86, "earl": 87,
+    }),
+    "Curtains": ("TD", {
+        "stage_right_open": 88, "stage_right_close": 89,
+        "center_stage_open": 90, "center_stage_close": 91,
+        "stage_left_open": 92, "stage_left_close": 93,
+    }),
+    "Lights": ("TD", {
+        # Props (TD track)
+        "sun_mouth": 37, "sun_raise": 38,
+        "moon_mouth": 45, "moon_raise": 46,
+        "looney_bird_hands": 47, "antioch_down": 48, "baby_bear_raise": 49,
+        # Organ Lights (TD track)
+        "organ_top_blue": 65, "organ_top_red": 66, "organ_top_amber": 67, "organ_top_green": 68,
+        "organ_leg_top": 70, "organ_leg_mid": 71, "organ_leg_bottom": 72,
+        "organ_cont_strobe": 73, "organ_flash_strobe": 74,
+        # Sign Lights (TD track)
+        "sign_inner": 75, "sign_mid": 76, "sign_outer": 77,
+        "sign_cont_strobe": 78, "sign_flash_strobe": 79,
+        # Spotlights (TD track)
         "spotlight_mitzi": 80, "spotlight_beach": 81, "spotlight_looney": 82,
         "spotlight_bob": 83, "spotlight_fats": 84, "spotlight_duke": 85,
         "spotlight_rolfe": 86, "spotlight_earl": 87,
+        # Curtains (TD track)
+        "curtain_stage_right_open": 88, "curtain_stage_right_close": 89,
+        "curtain_center_stage_open": 90, "curtain_center_stage_close": 91,
+        "curtain_stage_left_open": 92, "curtain_stage_left_close": 93,
+        # Tape Control (BD track) — note: 0-based bit 63,64 = 1-based 64,65
+        "tape_stop": 63, "tape_rewind": 64,
+        # Flood Lights (BD track)
+        "flood_stage_right_blue": 65, "flood_stage_right_green": 66,
+        "flood_stage_right_amber": 67, "flood_stage_right_red": 68,
+        "flood_center_stage_blue": 70, "flood_center_stage_green": 71,
+        "flood_center_stage_amber": 72, "flood_center_stage_red": 73,
+        "flood_stage_left_blue": 75, "flood_stage_left_green": 76,
+        "flood_stage_left_amber": 77, "flood_stage_left_red": 78,
+        # Property Lights (BD track)
+        "prop_light_applause": 69, "prop_light_drums": 74,
+        "prop_light_fire_still": 79, "prop_light_gas_pump": 90,
+        # Scenic Lights (BD track)
+        "flood_backdrop_outside_blue": 80, "flood_backdrop_inside_amber": 81,
+        "flood_treeline_blue": 82, "flood_backdrop_inside_blue": 83, "flood_treeline_red": 84,
+        "flood_bushes_green": 85, "flood_bushes_red_amber": 86,
+        # Spotlights BD (BD track)
+        "spotlight_sun": 87, "spotlight_moon": 88, "spotlight_spider": 89, "spotlight_guitar": 95,
+        # Service Lights (BD track)
+        "stage_light_service_stn_red": 91, "stage_light_service_stn_blue": 92,
+        "stage_light_rainbow_1_red": 93, "stage_light_rainbow_2_yellow": 94,
     }),
     "Beach Bear": ("BD", {
         "eyelid_left": 0, "eyelid_right": 1, "eye_cross": 2,
@@ -214,6 +272,33 @@ _CHAR_MOV_BITS = {
         "arm_right_raise": 55, "arm_right_twist": 56, "elbow_right_twist": 57,
         "wrist_right": 58,
         "body_twist_left": 60, "body_twist_right": 61, "body_lean": 62,
+    }),
+    "Tape Control": ("BD", {
+        "stop": 63, "rewind": 64,
+    }),
+    "Flood Lights - Stage Right": ("BD", {
+        "blue": 65, "green": 66, "amber": 67, "red": 68,
+    }),
+    "Flood Lights - Center Stage": ("BD", {
+        "blue": 70, "green": 71, "amber": 72, "red": 73,
+    }),
+    "Flood Lights - Stage Left": ("BD", {
+        "blue": 75, "green": 76, "amber": 77, "red": 78,
+    }),
+    "Backdrop & Scenic Lights": ("BD", {
+        "backdrop_outside_blue": 80, "backdrop_inside_amber": 81,
+        "treeline_blue": 82, "backdrop_inside_blue": 83, "treeline_red": 84,
+        "bushes_green": 85, "bushes_red_amber": 86,
+    }),
+    "Property Lights": ("BD", {
+        "applause": 69, "drums": 74, "fire_still": 79, "gas_pump": 90,
+    }),
+    "Service Lights": ("BD", {
+        "service_station_red": 91, "service_station_blue": 92,
+        "rainbow_1_red": 93, "rainbow_2_yellow": 94,
+    }),
+    "Stage Spotlights BD": ("BD", {
+        "sun": 87, "moon": 88, "spider": 89, "guitar": 95,
     }),
     # MMBB (mock bit positions — overlapping Rock hardware slots)
     "Chuck E. Cheese": ("TD", {
