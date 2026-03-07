@@ -115,7 +115,7 @@ _ROCK = {
     "Lights": {
         "role": "lights",
         "bass":   ["spotlight_duke", "spotlight_bob", "spotlight_beach"],
-        "mid":    ["spotlight_fats", "spotlight_bob", "spotlight_beach", "spotlight_duke"],
+        "mid":    ["spotlight_fatz", "spotlight_bob", "spotlight_beach", "spotlight_duke"],
         "treble": ["spotlight_rolfe", "spotlight_mitzi", "spotlight_earl", "spotlight_looney"],
         "soft":   [],
         "hold_bass": 4, "hold_mid": 4, "hold_treble": 5, "hold_soft": 3,

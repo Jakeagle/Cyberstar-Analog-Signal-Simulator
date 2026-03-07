@@ -59,16 +59,16 @@ _TD_CH = {
     "earl_mouth": 36, "earl_eyebrow": 37,
     "props_sun_mouth": 38, "props_sun_raise": 39,
     "specials_dual_pressure_td": 40,
-    "fats_left_eyelid": 41, "fats_right_eyelid": 42,
-    "fats_eyes_left": 43, "fats_eyes_right": 44, "fats_mouth": 45,
+    "fatz_left_eyelid": 41, "fatz_right_eyelid": 42,
+    "fatz_eyes_left": 43, "fatz_eyes_right": 44, "fatz_mouth": 45,
     "props_moon_mouth": 46, "props_moon_raise": 47,
     "props_looney_bird_hands": 48, "props_antioch_down": 49, "props_baby_bear_raise": 50,
-    "fats_head_tip_left": 51, "fats_head_tip_right": 52, "fats_head_up": 53,
-    "fats_head_left": 54, "fats_head_right": 55,
+    "fatz_head_tip_left": 51, "fatz_head_tip_right": 52, "fatz_head_up": 53,
+    "fatz_head_left": 54, "fatz_head_right": 55,
     # bit 56 BLANK
-    "fats_left_arm_swing": 57, "fats_right_arm_swing": 58,
-    "fats_left_elbow": 59, "fats_right_elbow": 60,
-    "fats_foot_tap": 61, "fats_body_lean": 62,
+    "fatz_left_arm_swing": 57, "fatz_right_arm_swing": 58,
+    "fatz_left_elbow": 59, "fatz_right_elbow": 60,
+    "fatz_foot_tap": 61, "fatz_body_lean": 62,
     "duke_right_foot_bass_drum": 63, "duke_body_lean": 64,
     # bit 65 BLANK
     "organ_top_blue": 66, "organ_top_red": 67, "organ_top_amber": 68, "organ_top_green": 69,
@@ -78,7 +78,7 @@ _TD_CH = {
     "sign_inner": 76, "sign_mid": 77, "sign_outer": 78,
     "sign_cont_strobe": 79, "sign_flash_strobe": 80,
     "spot_mitzi": 81, "spot_beach_bear": 82, "spot_looney_bird": 83,
-    "spot_billy_bob": 84, "spot_fats": 85, "spot_duke": 86,
+    "spot_billy_bob": 84, "spot_fatz": 85, "spot_duke": 86,
     "spot_rolfe": 87, "spot_earl": 88,
     "curtain_stage_right_open": 89, "curtain_stage_right_close": 90,
     "curtain_center_stage_open": 91, "curtain_center_stage_close": 92,
@@ -168,7 +168,7 @@ _CHAR_MOV_BITS = {
         "arm_left_swing": 32, "arm_right_swing": 33, "elbow_left": 34,
         "bass_drum": 62, "body_lean": 63,
     }),
-    "Fats": ("TD", {
+    "Fatz": ("TD", {
         "eyelid_left": 40, "eyelid_right": 41, "eye_left": 42, "eye_right": 43,
         "mouth": 44,
         "head_tip_left": 50, "head_tip_right": 51, "head_up": 52,
@@ -193,7 +193,7 @@ _CHAR_MOV_BITS = {
     }),
     "Stage Spotlights": ("TD", {
         "mitzi": 80, "beach_bear": 81, "looney_bird": 82,
-        "billy_bob": 83, "fats": 84, "duke": 85,
+        "billy_bob": 83, "fatz": 84, "duke": 85,
         "rolfe": 86, "earl": 87,
     }),
     "Curtains": ("TD", {
@@ -215,7 +215,7 @@ _CHAR_MOV_BITS = {
         "sign_cont_strobe": 78, "sign_flash_strobe": 79,
         # Spotlights (TD track)
         "spotlight_mitzi": 80, "spotlight_beach": 81, "spotlight_looney": 82,
-        "spotlight_bob": 83, "spotlight_fats": 84, "spotlight_duke": 85,
+        "spotlight_bob": 83, "spotlight_fatz": 84, "spotlight_duke": 85,
         "spotlight_rolfe": 86, "spotlight_earl": 87,
         # Curtains (TD track)
         "curtain_stage_right_open": 88, "curtain_stage_right_close": 89,
