@@ -22,7 +22,7 @@ const BAND_CHARACTERS = {
   rock: [
     "Billy Bob",
     "Mitzi",
-    "Fatz",
+    "Fats",
     "Beach Bear",
     "Dook LaRue",
     "Rolfe",
@@ -131,7 +131,7 @@ const MOVEMENT_PATTERNS = {
     "eye_right",
     "eye_center",
   ],
-  Fatz: [
+  Fats: [
     "mouth",
     "head_left",
     "head_right",
@@ -413,10 +413,10 @@ function buildComeTogetherRFESongMapped() {
 
   function bassKeys(from, to) {
     for (let t = from; t < to; t += BAR) {
-      mv(t, "Fatz", "arm_left_down"); // keyboard lean
-      mv(t + BEAT, "Fatz", "arm_right_down"); // foot bounce replacement
-      mv(t + BEAT * 2, "Fatz", "body_twist_left");
-      mv(t + BEAT * 3, "Fatz", "arm_right_down");
+      mv(t, "Fats", "arm_left_down"); // keyboard lean
+      mv(t + BEAT, "Fats", "arm_right_down"); // foot bounce replacement
+      mv(t + BEAT * 2, "Fats", "body_twist_left");
+      mv(t + BEAT * 3, "Fats", "arm_right_down");
     }
   }
 
@@ -496,8 +496,8 @@ function buildComeTogetherRFESongMapped() {
       mv(t + BEAT, "Billy Bob", "arm_right_up");
       mv(t, "Beach Bear", "arm_left_up");
       mv(t + BEAT, "Beach Bear", "guitar");
-      mv(t, "Fatz", "arm_right_raise");
-      mv(t + BEAT, "Fatz", "arm_left_raise");
+      mv(t, "Fats", "arm_right_raise");
+      mv(t + BEAT, "Fats", "arm_left_raise");
       mv(t + BEAT * 3, "Dook LaRue", "cymbal_right");
       mv(t + BEAT * 2, "Earl", "eyebrow");
     }
@@ -519,7 +519,7 @@ function buildComeTogetherRFESongMapped() {
   mv(2500, "Dook LaRue", "bass_drum");
   mv(2857, "Beach Bear", "guitar");
   mv(2857, "Dook LaRue", "arm_left_up");
-  mv(3214, "Fatz", "arm_left_down");
+  mv(3214, "Fats", "arm_left_down");
   mv(3214, "Dook LaRue", "arm_left_down");
   mv(3571, "Beach Bear", "guitar");
   mv(3571, "Billy Bob", "head_right");
@@ -624,7 +624,7 @@ function buildComeTogetherRFESongMapped() {
     mv(t, "Rolfe", "head_right");
     mv(t + BAR / 2, "Rolfe", "head_left");
     mv(t, "Earl", "eyebrow"); // impressed
-    mv(t + BAR / 2, "Fatz", "body_twist_left");
+    mv(t + BAR / 2, "Fats", "body_twist_left");
   }
 
   // ── VERSE 4  173929 – 207143 "He roller-coaster…" ────────────────────────
@@ -667,9 +667,9 @@ function buildComeTogetherRFESongMapped() {
     mv(t + BEAT * 3, "Billy Bob", "arm_right_down");
     mv(t, "Beach Bear", "arm_left_up");
     mv(t + BEAT, "Beach Bear", "guitar");
-    mv(t, "Fatz", "arm_right_raise");
-    mv(t + BEAT, "Fatz", "arm_left_raise");
-    mv(t + BEAT * 2, "Fatz", "body_twist_left");
+    mv(t, "Fats", "arm_right_raise");
+    mv(t + BEAT, "Fats", "arm_left_raise");
+    mv(t + BEAT * 2, "Fats", "body_twist_left");
     mv(t, "Dook LaRue", "arm_left_up");
     mv(t + BEAT * 3, "Dook LaRue", "cymbal_right");
     mv(t + BEAT * 2, "Earl", "eyebrow");
@@ -694,15 +694,15 @@ function buildComeTogetherRFESongMapped() {
     mv(t + BEAT, "Beach Bear", "body_twist_left");
     mv(t, "Mitzi", "arm_left_raise");
     mv(t + BEAT, "Mitzi", "body_twist_left");
-    mv(t, "Fatz", "arm_right_raise");
-    mv(t + BAR / 2, "Fatz", "arm_left_down");
+    mv(t, "Fats", "arm_right_raise");
+    mv(t + BAR / 2, "Fats", "arm_left_down");
   }
 
   // Final bow — wind down 252000 – 259000
   mv(252000, "Rolfe", "body_lean");
   mv(252500, "Billy Bob", "arm_right_down");
   mv(253000, "Mitzi", "hand_wave");
-  mv(253500, "Fatz", "torso_twist");
+  mv(253500, "Fats", "torso_twist");
   mv(254000, "Beach Bear", "torso_sway");
   mv(254500, "Dook LaRue", "arm_down");
   mv(255000, "Rolfe", "arm_left_raise");
@@ -900,17 +900,17 @@ const SHOWTAPES = {
         movement_display: "Head rock left",
         data: new Uint8Array([0x0f, 0xf0, 0x41]),
       },
-      // Fatz keyboard leads
+      // Fats keyboard leads
       {
         time: 600,
-        character: "Fatz",
+        character: "Fats",
         movement: "keyboard_lean",
         movement_display: "Keyboard lean",
         data: new Uint8Array([0xc3, 0x3c, 0x80]),
       },
       {
         time: 900,
-        character: "Fatz",
+        character: "Fats",
         movement: "foot_bounce",
         movement_display: "Foot bounce",
         data: new Uint8Array([0x5a, 0xa5, 0x81]),
@@ -1246,7 +1246,7 @@ const SHOWTAPES = {
       "Rolfe",
       "Earl",
       "Dook LaRue",
-      "Fatz",
+      "Fats",
       "Beach Bear",
       "Mitzi",
       "Billy Bob",
@@ -1257,7 +1257,7 @@ const SHOWTAPES = {
       description:
         "Factory-style diagnostic tape for The Rock-Afire Explosion. " +
         "Each movement is pulsed ON/OFF three times in sequence, character by character: " +
-        "Rolfe \u2192 Earl \u2192 Dook LaRue \u2192 Fatz \u2192 Beach Bear \u2192 Mitzi \u2192 Billy Bob. " +
+        "Rolfe \u2192 Earl \u2192 Dook LaRue \u2192 Fats \u2192 Beach Bear \u2192 Mitzi \u2192 Billy Bob. " +
         "Use to verify every actuator is receiving its correct bit address.",
       duration: totalDurationMs,
       bitrate: 4800,
