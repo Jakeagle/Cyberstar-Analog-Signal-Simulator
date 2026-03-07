@@ -115,7 +115,7 @@
   const _RAE_CHARS = new Set([
     "Rolfe",
     "Earl",
-    "Duke LaRue",
+    "Dook LaRue",
     "Fatz",
     "Beach Bear",
     "Looney Bird",

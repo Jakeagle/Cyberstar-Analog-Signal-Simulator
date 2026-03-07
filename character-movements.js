@@ -39,8 +39,8 @@ const CHARACTER_MOVEMENTS = {
     },
   },
 
-  // --- DUKE (Track TD) ---
-  "Duke LaRue": {
+  // --- DOOK LARUE (Track TD) ---
+  "Dook LaRue": {
     movements: {
       head_right: { track: "TD", bit: 20 },
       head_up: { track: "TD", bit: 21 },

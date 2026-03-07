@@ -160,7 +160,7 @@ _CHAR_MOV_BITS = {
     "Earl": ("TD", {
         "head_tilt": 19, "mouth": 35, "eyebrow": 36,
     }),
-    "Duke LaRue": ("TD", {
+    "Dook LaRue": ("TD", {
         "head_right": 20, "head_up": 21, "ear_left": 22, "ear_right": 23,
         "head_left": 24, "eyelid_left": 25, "eyelid_right": 26,
         "eye_left": 27, "eye_right": 28, "mouth": 29,
