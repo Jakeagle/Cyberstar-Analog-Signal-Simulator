@@ -4,6 +4,36 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [3.3.3] - 2026-03-08
+
+### Feature: Enhanced Zoom Range for Full Project View
+
+**Improved**: Timeline zoom functionality expanded to allow comfortable viewing of entire project without scrolling.
+
+#### Details
+
+- **Expanded zoom range** from 1-40 px/frame to 0.1-100 px/frame
+  - Minimum 0.1 px/frame: Displays ~900 frames per 1920px screen (full project fits with margins)
+  - Maximum 100 px/frame: Allows ultra-fine editing for precise signal placement
+- **Sub-pixel rendering**: Zoom levels now support fractional pixel values for smooth scaling
+- Use zoom buttons or keyboard shortcuts (+/-) to navigate the full range
+- Enables single-screen project overview without horizontal/vertical scrolling
+
+#### Technical
+
+- Updated `applyZoom()` constraint from `Math.min(40, ...)` to `Math.min(100, ...)`
+- Updated minimum zoom from `Math.max(1, ...)` to `Math.max(0.1, ...)`
+- Sub-pixel zoom values are rounded to 1 decimal place for display
+
+#### Impact
+
+- ✅ Full project timeline visible at once without scrolling
+- ✅ Maintained precision for fine-grained editing
+- ✅ Better project overview and navigation
+- ✅ Keyboard shortcuts (+/-) and zoom buttons now span full range
+
+---
+
 ## [3.2.3] - 2026-03-06
 
 ### Hotfix: Revert naming to Fatz

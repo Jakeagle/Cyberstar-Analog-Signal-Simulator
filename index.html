@@ -3811,8 +3811,10 @@
    ============================================================ */
       function applyZoom(newZoom) {
         const anchorFrame = curFrame;
-        zoom = Math.max(1, Math.min(40, newZoom));
-        elZoomLabel.textContent = `${zoom}px/fr`;
+        zoom = Math.max(0.1, Math.min(100, newZoom));
+        // Round to 1 decimal place for display
+        const displayZoom = Math.round(zoom * 10) / 10;
+        elZoomLabel.textContent = `${displayZoom}px/fr`;
 
         const totalW = frameToX(totalFrames) + 300;
         elTracks.style.width = totalW + "px";
