@@ -182,7 +182,7 @@ const CHARACTER_MOVEMENTS = {
       spotlight_beach: { track: "TD", bit: 81 },
       spotlight_looney: { track: "TD", bit: 82 },
       spotlight_bob: { track: "TD", bit: 83 },
-      spotlight_fats: { track: "TD", bit: 84 },
+      spotlight_fatz: { track: "TD", bit: 84 },
       spotlight_duke: { track: "TD", bit: 85 },
       spotlight_rolfe: { track: "TD", bit: 86 },
       spotlight_earl: { track: "TD", bit: 87 },
