@@ -1791,7 +1791,15 @@
       let playAudioStart = 0; // audioCtx.currentTime at last play start
       let playFrameStart = 0; // show frame at last play start
       let curFrame = 0;
-      let zoom = 5; // px per frame
+      // Zoom system: percentage-based with preset levels
+      // Baseline: 5 px/frame = 100%
+      const ZOOM_LEVELS = [
+        5, 10, 15, 25, 50, 75, 100, 125, 150, 200, 250, 300, 400, 500, 750,
+        1000, 1500, 2000,
+      ]; // percentages
+      const BASELINE_PX_PER_FRAME = 5;
+      let zoomLevelIndex = 6; // Start at 100%
+      let zoom = (ZOOM_LEVELS[zoomLevelIndex] / 100) * BASELINE_PX_PER_FRAME; // px per frame
       let totalFrames = 9000;
       let rowMeta = []; // [{ charName, movKey, color }] in display order
       let charMeta = []; // [{ charName, color, movKeys[] }] in display order
@@ -3809,12 +3817,23 @@
       /* ============================================================
    ZOOM
    ============================================================ */
-      function applyZoom(newZoom) {
+      function applyZoom(newLevelIndex) {
         const anchorFrame = curFrame;
-        zoom = Math.max(0.1, Math.min(100, newZoom));
-        // Round to 1 decimal place for display
-        const displayZoom = Math.round(zoom * 10) / 10;
-        elZoomLabel.textContent = `${displayZoom}px/fr`;
+        // Save selection state before re-rendering
+        const savedSelectedKeys = new Set(selectedKeys);
+        const savedDragSelectState = dragSelectState
+          ? { ...dragSelectState }
+          : null;
+
+        // Clamp to valid zoom level range
+        zoomLevelIndex = Math.max(
+          0,
+          Math.min(ZOOM_LEVELS.length - 1, newLevelIndex),
+        );
+        const zoomPercent = ZOOM_LEVELS[zoomLevelIndex];
+        zoom = (zoomPercent / 100) * BASELINE_PX_PER_FRAME;
+        // Display percentage
+        elZoomLabel.textContent = `${zoomPercent}%`;
 
         const totalW = frameToX(totalFrames) + 300;
         elTracks.style.width = totalW + "px";
@@ -3828,6 +3847,28 @@
         for (const { charName, movKey, color } of rowMeta)
           renderBlocks(charName, movKey, color);
         updatePlayhead();
+
+        // Restore selections after zoom
+        for (const key of savedSelectedKeys) {
+          const el = elTracks.querySelector(
+            `.signal-block[data-key="${CSS.escape(key)}"], .state-block[data-key="${CSS.escape(key)}"]`,
+          );
+          if (el) {
+            el.classList.add("selected");
+          }
+        }
+        selectedKeys = savedSelectedKeys;
+
+        // Restore marquee selection if active
+        if (savedDragSelectState) {
+          dragSelectState = savedDragSelectState;
+          updateSelectRect(
+            savedDragSelectState.startFrame,
+            savedDragSelectState.curFrame,
+            savedDragSelectState.startY,
+            savedDragSelectState.curY,
+          );
+        }
 
         // Keep the current playhead roughly centred after zoom
         elTimelineWrap.scrollLeft = Math.max(
@@ -4051,10 +4092,10 @@
         // Zoom buttons
         document
           .getElementById("btn-zoom-in")
-          .addEventListener("click", () => applyZoom(zoom + 1));
+          .addEventListener("click", () => applyZoom(zoomLevelIndex + 1));
         document
           .getElementById("btn-zoom-out")
-          .addEventListener("click", () => applyZoom(zoom - 1));
+          .addEventListener("click", () => applyZoom(zoomLevelIndex - 1));
 
         // Scroll wheel on timeline → horizontal scroll (DAW-style feel)
         elTimelineWrap.addEventListener(
@@ -4116,9 +4157,10 @@
             seekToFrame(curFrame - (e.shiftKey ? 50 : 5));
           if (e.code === "ArrowRight")
             seekToFrame(curFrame + (e.shiftKey ? 50 : 5));
-          if (e.code === "Equal" || e.code === "NumpadAdd") applyZoom(zoom + 1);
+          if (e.code === "Equal" || e.code === "NumpadAdd")
+            applyZoom(zoomLevelIndex + 1);
           if (e.code === "Minus" || e.code === "NumpadSubtract")
-            applyZoom(zoom - 1);
+            applyZoom(zoomLevelIndex - 1);
           if (e.code === "KeyS" && !e.ctrlKey && !e.metaKey) toggleSnap();
           if (e.code === "KeyT" && !e.ctrlKey && !e.metaKey) toggleStateMode();
           if ((e.ctrlKey || e.metaKey) && e.code === "KeyS") {

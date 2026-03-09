@@ -6,31 +6,59 @@ All notable changes to this project are documented in this file.
 
 ## [3.3.3] - 2026-03-08
 
-### Feature: Enhanced Zoom Range for Full Project View
+### Feature: Enhanced Zoom System with Percentage Display
 
-**Improved**: Timeline zoom functionality expanded to allow comfortable viewing of entire project without scrolling.
+**Improved**: Timeline zoom functionality expanded with preset zoom levels (5% to 2000%) and percentage-based display for intuitive scaling.
 
 #### Details
 
-- **Expanded zoom range** from 1-40 px/frame to 0.1-100 px/frame
-  - Minimum 0.1 px/frame: Displays ~900 frames per 1920px screen (full project fits with margins)
-  - Maximum 100 px/frame: Allows ultra-fine editing for precise signal placement
-- **Sub-pixel rendering**: Zoom levels now support fractional pixel values for smooth scaling
-- Use zoom buttons or keyboard shortcuts (+/-) to navigate the full range
+- **Percentage-based zoom display**: Shows zoom as % instead of px/frame for better intuitiveness
+  - Baseline: 5% = normal view (corresponds to 5 px/frame)
+  - Range: 5% (fully zoomed out) to 2000% (ultra-zoomed in)
+  - Enables single-screen project overview (at 5%) and precise pixel editing (at 2000%)
+- **18 preset zoom levels**: 5%, 10%, 15%, 25%, 50%, 75%, 100%, 125%, 150%, 200%, 250%, 300%, 400%, 500%, 750%, 1000%, 1500%, 2000%
+  - More intermediate steps between minimum and next level for granular control
+  - Smooth progression allows comfortable navigation across the full range
+- Use zoom buttons or keyboard shortcuts (+/-) to step through levels
 - Enables single-screen project overview without horizontal/vertical scrolling
 
 #### Technical
 
-- Updated `applyZoom()` constraint from `Math.min(40, ...)` to `Math.min(100, ...)`
-- Updated minimum zoom from `Math.max(1, ...)` to `Math.max(0.1, ...)`
-- Sub-pixel zoom values are rounded to 1 decimal place for display
+- Introduced `ZOOM_LEVELS` array with 18 preset percentage values
+- New `BASELINE_PX_PER_FRAME` constant (5) defines the 100% reference point
+- Track `zoomLevelIndex` instead of raw px/frame value
+- `applyZoom()` now takes level index and clamps to valid range
+- Display shows percentage calculated from current level
 
 #### Impact
 
+- ✅ Intuitive percentage display familiar to most users
 - ✅ Full project timeline visible at once without scrolling
 - ✅ Maintained precision for fine-grained editing
-- ✅ Better project overview and navigation
-- ✅ Keyboard shortcuts (+/-) and zoom buttons now span full range
+- ✅ More intermediate zoom steps between extremes
+- ✅ Keyboard shortcuts (+/-) and zoom buttons navigate preset levels
+
+### Bugfix: Selection Persistence During Zoom
+
+**Fixed**: Group selections (multi-select) and marquee selections now persist when changing zoom level.
+
+#### Problem
+
+When zooming in or out, active selections were lost because block elements were removed and recreated during the zoom re-render. Users had to reselect blocks after each zoom change.
+
+#### Solution
+
+- Save selection state (`selectedKeys` set) before re-rendering blocks during zoom
+- Save marquee selection state (`dragSelectState`) before re-rendering during zoom
+- Re-apply selection classes to block elements after render completes
+- Restore marquee rectangle visualization if active
+
+#### Impact
+
+- ✅ Group selections remain active through zoom changes
+- ✅ Marquee selections remain active through zoom changes
+- ✅ Selections persist until user explicitly cancels with Escape key
+- ✅ Enables zoom adjustment without losing active selection context
 
 ---
 
