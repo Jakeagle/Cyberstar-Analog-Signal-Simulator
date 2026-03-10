@@ -2960,16 +2960,6 @@
                 const hasHorizontalMovement =
                   bm.previewStart !== undefined &&
                   bm.previewStart !== bm.startFrame;
-                console.log(
-                  "[MultiBlockMove] hasVertical:",
-                  hasVerticalMovement,
-                  "hasHorizontal:",
-                  hasHorizontalMovement,
-                  "targetChar:",
-                  bm.targetCharName,
-                  "origChar:",
-                  bm.charName,
-                );
                 if (hasVerticalMovement || hasHorizontalMovement) {
                   const frameDelta =
                     bm.previewStart !== undefined
@@ -3067,31 +3057,18 @@
                       refreshRow(cn, mk);
                     }
                   } else {
-                    console.log(
-                      "[MultiBlockMove] Committing",
-                      allMoves.length,
-                      "moves",
-                    );
                     for (const mv of allMoves) {
                       const isCrossRow =
                         mv.oldCharName !== mv.charName ||
                         mv.oldMovKey !== mv.movKey;
-                      console.log(
-                        "[MultiBlockMove] Move:",
-                        mv.oldCharName,
-                        "→",
-                        mv.charName,
-                        "isCrossRow:",
-                        isCrossRow,
-                      );
                       if (isCrossRow) {
                         commitBlockMoveToNewRow(
                           mv.oldCharName,
                           mv.oldMovKey,
-                          mv.oldStart,
-                          mv.oldEnd,
                           mv.charName,
                           mv.movKey,
+                          mv.oldStart,
+                          mv.oldEnd,
                           mv.newStart,
                           mv.newEnd,
                           mv.isState,
