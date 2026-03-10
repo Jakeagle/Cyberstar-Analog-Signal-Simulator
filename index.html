@@ -2954,17 +2954,19 @@
                 }
               } else {
                 // ── Multi-block move ────────────────────────────────────────────────
-                if (
+                const hasVerticalMovement =
+                  bm.targetCharName !== bm.charName ||
+                  bm.targetMovKey !== bm.movKey;
+                const hasHorizontalMovement =
                   bm.previewStart !== undefined &&
-                  (bm.previewStart !== bm.startFrame ||
-                    bm.targetCharName !== bm.charName ||
-                    bm.targetMovKey !== bm.movKey)
-                ) {
-                  const frameDelta = bm.previewStart - bm.startFrame;
+                  bm.previewStart !== bm.startFrame;
+                if (hasVerticalMovement || hasHorizontalMovement) {
+                  const frameDelta =
+                    bm.previewStart !== undefined
+                      ? bm.previewStart - bm.startFrame
+                      : 0;
                   // If primary block is being moved to a different row, apply same to multiBlocks
-                  const crossRow =
-                    bm.targetCharName !== bm.charName ||
-                    bm.targetMovKey !== bm.movKey;
+                  const crossRow = hasVerticalMovement;
                   const targetCharName = bm.targetCharName || bm.charName;
                   const targetMovKey = bm.targetMovKey || bm.movKey;
 
@@ -3108,7 +3110,7 @@
                     setStatus(statusMsg);
                   }
                 } else {
-                  // No horizontal movement — check for vertical movement or re-render
+                  // No movement detected — just refresh to clear dragging state
                   const rowsToRefresh = new Set();
                   for (const m of [bm, ...(bm.multiBlocks || [])]) {
                     rowsToRefresh.add(`${m.charName}||${m.movKey}`);
